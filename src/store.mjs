@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { ensureLocalDirs, kvDel, kvGet, kvKeys, kvSet, usingRedis } from './kv.mjs';
+import { publicMailAccounts } from './mail.mjs';
 
 export async function readSettings() {
   await ensureLocalDirs();
@@ -44,6 +45,9 @@ export function publicSettings(settings) {
     minMedianViews: settings.minMedianViews || 1000,
     testMode: settings.testMode !== false,
     testInboxEmail: settings.testInboxEmail || '',
+    maxSendPerBatch: Number(settings.maxSendPerBatch || 6),
+    maxEmailsPerDomain: Number(settings.maxEmailsPerDomain || 2),
+    mailAccounts: publicMailAccounts(settings.mailAccounts || []),
     hasPassword: Boolean(settings.appPasswordHash),
     setupComplete: Boolean(settings.fromName && settings.fromEmail && settings.postalAddress && settings.appPasswordHash),
     storage: usingRedis() ? 'redis' : 'local',
@@ -71,6 +75,9 @@ export function defaultSettings() {
     minMedianViews: 1000,
     testMode: true,
     testInboxEmail: '',
+    maxSendPerBatch: 6,
+    maxEmailsPerDomain: 2,
+    mailAccounts: [],
     appPasswordHash: '',
   };
 }

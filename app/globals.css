@@ -219,6 +219,12 @@ th {
   padding: 12px 14px;
   border-radius: 12px;
 }
+.account-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  background: #fff;
+}
 .check-row {
   display: flex;
   align-items: center;

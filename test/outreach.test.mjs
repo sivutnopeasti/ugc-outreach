@@ -6,7 +6,7 @@ import test from 'node:test';
 import { parseHandleList } from '../src/ai.mjs';
 import { normalizeBusinessId, parseCsv, rowFromRecord } from '../src/csv.mjs';
 import { handleCandidatesFromName, profileMatchesCompany, scoreInstagramMatch } from '../src/handles.mjs';
-import { resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
+import { emailDomain, pickSenderAccount, resolveMailAccounts, resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
 import { assessPresence } from '../src/score.mjs';
 import { findInstagram, pickEmail } from '../src/sources.mjs';
 import { evaluateCompany, processFile } from '../src/run.mjs';
@@ -280,6 +280,27 @@ test('uncertain Instagram match waits for manual review', async () => {
   assert.equal(result.decision, 'needs_review');
   assert.equal(result.instagramConfidence, 'needs_review');
   assert.equal(result.pendingDecision, 'weak');
+});
+
+test('sender accounts rotate within domain limits', () => {
+  const accounts = resolveMailAccounts({
+    fromName: 'UGC',
+    mailAccounts: [
+      { id: 'a', fromEmail: 'a@gmail.com', smtpUser: 'a@gmail.com', smtpPass: 'x', enabled: true },
+      { id: 'b', fromEmail: 'b@gmail.com', smtpUser: 'b@gmail.com', smtpPass: 'y', enabled: true },
+      { id: 'c', fromEmail: 'c@outlook.com', smtpUser: 'c@outlook.com', smtpPass: 'z', enabled: true },
+    ],
+  });
+  assert.equal(accounts.length, 3);
+  assert.equal(emailDomain('a@gmail.com'), 'gmail.com');
+
+  const usage = {};
+  const first = pickSenderAccount(accounts, usage, 1);
+  usage[emailDomain(first.fromEmail)] = 1;
+  const second = pickSenderAccount(accounts, usage, 1);
+  assert.equal(emailDomain(second.fromEmail), 'outlook.com');
+  usage[emailDomain(second.fromEmail)] = 1;
+  assert.equal(pickSenderAccount(accounts, usage, 1), null);
 });
 
 test('test mode redirects mail to the operator inbox', () => {

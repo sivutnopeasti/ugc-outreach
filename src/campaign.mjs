@@ -1,6 +1,12 @@
 import { writeFile } from 'node:fs/promises';
 import { aiConfig } from './ai.mjs';
-import { createMailer, resolveSendTarget } from './mail.mjs';
+import {
+  createAccountMailer,
+  emailDomain,
+  pickSenderAccount,
+  resolveMailAccounts,
+  resolveSendTarget,
+} from './mail.mjs';
 import { defaultDeps, evaluateCompany } from './run.mjs';
 import { parseCsv, rowFromRecord } from './csv.mjs';
 import { buildMessage } from './template.mjs';
@@ -128,15 +134,25 @@ export async function confirmInstagram(runId, { businessId, action }) {
 
 export async function sendSelected(runId, businessIds) {
   const settings = await readSettings();
-  if (!settings.fromName || !settings.fromEmail || !settings.postalAddress) {
-    throw Object.assign(new Error('Täytä lähettäjän nimi, sähköposti ja postiosoite asetuksissa'), { status: 400 });
-  }
-  if (!settings.smtpPass && !(settings.smtpUser && settings.mailProvider)) {
-    throw Object.assign(new Error('Lisää Gmail-sovellussalasana asetuksiin ennen lähetystä'), { status: 400 });
+  if (!settings.fromName || !settings.postalAddress) {
+    throw Object.assign(new Error('Täytä lähettäjän nimi ja postiosoite asetuksissa'), { status: 400 });
   }
 
-  const env = settingsToEnv(settings);
-  const deliver = await createMailer(env);
+  const accounts = resolveMailAccounts(settings);
+  if (accounts.length === 0) {
+    throw Object.assign(new Error('Lisää vähintään yksi lähettäjäosoite asetuksiin'), { status: 400 });
+  }
+  if (accounts.every((account) => !account.smtpPass)) {
+    throw Object.assign(new Error('Lisää SMTP-salasana vähintään yhdelle lähettäjätilille'), { status: 400 });
+  }
+
+  const maxSendPerBatch = Math.max(1, Number(settings.maxSendPerBatch) || 6);
+  const maxEmailsPerDomain = Math.max(1, Number(settings.maxEmailsPerDomain) || 2);
+  const mailers = new Map();
+  for (const account of accounts) {
+    mailers.set(account.id, await createAccountMailer({ ...account, fromName: account.fromName || settings.fromName }));
+  }
+
   const suppressionText = await readSuppression();
   const suppressed = new Set(
     suppressionText
@@ -147,10 +163,15 @@ export async function sendSelected(runId, businessIds) {
 
   let run = await getRun(runId);
   const wanted = new Set(businessIds);
+  const usageByDomain = {};
   let sent = 0;
+  let skippedLimit = 0;
+  const processedIds = [];
 
   for (const row of run.results) {
     if (!wanted.has(row.businessId)) continue;
+    processedIds.push(row.businessId);
+
     if (row.decision === 'needs_review' || row.instagramConfidence === 'needs_review') {
       row.delivery = 'odottaa Instagram-vahvistusta';
       continue;
@@ -166,44 +187,74 @@ export async function sendSelected(runId, businessIds) {
     }
     if (row.sentAt || String(row.delivery || '').startsWith('lähetetty') || String(row.delivery || '').startsWith('testilähetys')) continue;
 
+    if (sent >= maxSendPerBatch) {
+      row.delivery = `jonossa (max ${maxSendPerBatch}/lähetys)`;
+      skippedLimit += 1;
+      continue;
+    }
+
+    const account = pickSenderAccount(accounts, usageByDomain, maxEmailsPerDomain);
+    if (!account) {
+      row.delivery = `jonossa (max ${maxEmailsPerDomain}/domain)`;
+      skippedLimit += 1;
+      continue;
+    }
+
+    const fromEmail = account.fromEmail || account.smtpUser;
     const message = buildMessage({
       companyName: row.name,
       businessId: row.businessId,
       instagramUrl: row.instagram,
       reasons: row.reasons || [],
-      fromName: settings.fromName,
-      fromEmail: settings.fromEmail,
+      fromName: account.fromName || settings.fromName,
+      fromEmail,
       postalAddress: settings.postalAddress,
     });
     const target = resolveSendTarget({
       testMode: settings.testMode !== false,
       testInboxEmail: settings.testInboxEmail,
-      fromEmail: settings.fromEmail,
+      fromEmail,
       companyEmail: row.email,
     });
-    await deliver({
+    const mailer = mailers.get(account.id);
+    await mailer.send({
       to: target.to,
       subject: `${target.subjectPrefix}${message.subject}`,
       text: `${target.prefaceText}${message.text}`,
       html: `${target.prefaceHtml}${message.html}`,
       headers: {
-        'List-Unsubscribe': `<mailto:${settings.fromEmail}?subject=Ei%20kiitos>`,
+        'List-Unsubscribe': `<mailto:${fromEmail}?subject=Ei%20kiitos>`,
         'X-UGC-Intended-Recipient': row.email,
         'X-UGC-Test-Mode': settings.testMode !== false ? '1' : '0',
+        'X-UGC-Sender-Account': fromEmail,
       },
     });
+
+    const domain = emailDomain(fromEmail);
+    usageByDomain[domain] = (usageByDomain[domain] || 0) + 1;
     row.delivery = target.label;
     row.intendedEmail = row.email;
     row.sentTo = target.to;
+    row.sentFrom = fromEmail;
     row.sentAt = new Date().toISOString();
     sent += 1;
     await saveRun(run);
   }
 
   const modeNote = settings.testMode !== false ? ' (testitila → sinulle)' : '';
-  run.message = `Lähetetty ${sent} viestiä${modeNote}`;
+  const limitNote = skippedLimit > 0 ? `, ${skippedLimit} jäi jonoon rajojen takia` : '';
+  run.message = `Lähetetty ${sent} viestiä${modeNote}${limitNote}`;
   await saveRun(run);
-  return { sent, run, testMode: settings.testMode !== false };
+  return {
+    sent,
+    skippedLimit,
+    limitReached: skippedLimit > 0 || sent >= maxSendPerBatch,
+    maxSendPerBatch,
+    maxEmailsPerDomain,
+    processedIds,
+    run,
+    testMode: settings.testMode !== false,
+  };
 }
 
 function applyDeliveryState(result, settings) {

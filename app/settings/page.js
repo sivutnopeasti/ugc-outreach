@@ -4,6 +4,19 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Shell from '../components/Shell';
 
+const EMPTY_ACCOUNT = {
+  id: '',
+  fromName: '',
+  fromEmail: '',
+  mailProvider: 'gmail',
+  smtpHost: '',
+  smtpPort: 587,
+  smtpUser: '',
+  smtpPass: '',
+  enabled: true,
+  smtpPassSet: false,
+};
+
 const EMPTY = {
   fromName: '',
   fromEmail: '',
@@ -23,13 +36,16 @@ const EMPTY = {
   minMedianViews: 1000,
   testMode: true,
   testInboxEmail: '',
+  maxSendPerBatch: 6,
+  maxEmailsPerDomain: 2,
+  mailAccounts: [],
   appPassword: '',
 };
 
 export default function SettingsPage() {
   const router = useRouter();
   const [form, setForm] = useState(EMPTY);
-  const [meta, setMeta] = useState({ smtpPassSet: false, aiKeySet: false, metaTokenSet: false });
+  const [meta, setMeta] = useState({ aiKeySet: false, metaTokenSet: false });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -45,9 +61,35 @@ export default function SettingsPage() {
       })
       .then((body) => {
         if (!body?.settings) return;
-        setForm((current) => ({ ...current, ...body.settings, smtpPass: '', aiApiKey: '', metaAccessToken: '', appPassword: '' }));
+        const accounts = (body.settings.mailAccounts || []).map((account) => ({
+          ...EMPTY_ACCOUNT,
+          ...account,
+          smtpPass: '',
+        }));
+        if (accounts.length === 0 && body.settings.fromEmail) {
+          accounts.push({
+            ...EMPTY_ACCOUNT,
+            id: 'account-1',
+            fromName: body.settings.fromName || '',
+            fromEmail: body.settings.fromEmail || '',
+            mailProvider: body.settings.mailProvider || 'gmail',
+            smtpHost: body.settings.smtpHost || '',
+            smtpPort: body.settings.smtpPort || 587,
+            smtpUser: body.settings.smtpUser || body.settings.fromEmail || '',
+            smtpPassSet: Boolean(body.settings.smtpPassSet),
+            enabled: true,
+          });
+        }
+        setForm((current) => ({
+          ...current,
+          ...body.settings,
+          smtpPass: '',
+          aiApiKey: '',
+          metaAccessToken: '',
+          appPassword: '',
+          mailAccounts: accounts,
+        }));
         setMeta({
-          smtpPassSet: body.settings.smtpPassSet,
           aiKeySet: body.settings.aiKeySet,
           metaTokenSet: body.settings.metaTokenSet,
         });
@@ -59,23 +101,72 @@ export default function SettingsPage() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  function updateAccount(index, key, value) {
+    setForm((current) => {
+      const mailAccounts = current.mailAccounts.map((account, i) => (
+        i === index ? { ...account, [key]: value } : account
+      ));
+      return { ...current, mailAccounts };
+    });
+  }
+
+  function addAccount() {
+    setForm((current) => ({
+      ...current,
+      mailAccounts: [
+        ...current.mailAccounts,
+        {
+          ...EMPTY_ACCOUNT,
+          id: `account-${Date.now()}`,
+          fromName: current.fromName || '',
+        },
+      ],
+    }));
+  }
+
+  function removeAccount(index) {
+    setForm((current) => ({
+      ...current,
+      mailAccounts: current.mailAccounts.filter((_, i) => i !== index),
+    }));
+  }
+
   async function onSubmit(event) {
     event.preventDefault();
     setLoading(true);
     setError('');
     setMessage('');
     try {
+      const primary = form.mailAccounts.find((item) => item.enabled !== false) || form.mailAccounts[0];
+      const payload = {
+        ...form,
+        fromEmail: primary?.fromEmail || form.fromEmail,
+        smtpUser: primary?.smtpUser || form.smtpUser,
+        mailProvider: primary?.mailProvider || form.mailProvider,
+      };
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Tallennus epäonnistui');
       setMessage('Asetukset tallennettu.');
-      setForm((current) => ({ ...current, smtpPass: '', aiApiKey: '', metaAccessToken: '', appPassword: '' }));
+      const accounts = (body.settings.mailAccounts || []).map((account) => ({
+        ...EMPTY_ACCOUNT,
+        ...account,
+        smtpPass: '',
+      }));
+      setForm((current) => ({
+        ...current,
+        ...body.settings,
+        smtpPass: '',
+        aiApiKey: '',
+        metaAccessToken: '',
+        appPassword: '',
+        mailAccounts: accounts,
+      }));
       setMeta({
-        smtpPassSet: body.settings.smtpPassSet,
         aiKeySet: body.settings.aiKeySet,
         metaTokenSet: body.settings.metaTokenSet,
       });
@@ -98,7 +189,7 @@ export default function SettingsPage() {
         <h2 style={{ margin: 0 }}>Lähettäjä</h2>
         <div className="grid two">
           <label>Nimi<input value={form.fromName} onChange={(e) => update('fromName', e.target.value)} required /></label>
-          <label>Sähköposti<input type="email" value={form.fromEmail} onChange={(e) => update('fromEmail', e.target.value)} required /></label>
+          <label>Oletussähköposti<input type="email" value={form.fromEmail} onChange={(e) => update('fromEmail', e.target.value)} required /></label>
         </div>
         <label>Postiosoite<textarea value={form.postalAddress} onChange={(e) => update('postalAddress', e.target.value)} required /></label>
 
@@ -124,31 +215,78 @@ export default function SettingsPage() {
           />
         </label>
 
-        <h2 style={{ marginBottom: 0 }}>Ilmainen sähköpostilähetys</h2>
+        <h2 style={{ marginBottom: 0 }}>Lähetysrajat</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          Suositus: Gmail-sovellussalasana. Vaihtoehto: Brevo-ilmaistili.
+          Testiversion oletus: enintään 6 viestiä per lähetys. Voit myös rajoittaa, paljonko yhtä domainia (esim. gmail.com) käytetään kerralla.
         </p>
         <div className="grid two">
           <label>
-            Palvelu
-            <select value={form.mailProvider} onChange={(e) => update('mailProvider', e.target.value)}>
-              <option value="gmail">Gmail (ilmainen)</option>
-              <option value="brevo">Brevo (ilmainen)</option>
-              <option value="custom">Oma SMTP</option>
-            </select>
+            Max viestejä per lähetys
+            <input
+              type="number"
+              min="1"
+              value={form.maxSendPerBatch}
+              onChange={(e) => update('maxSendPerBatch', e.target.value)}
+            />
           </label>
-          <label>SMTP-käyttäjä<input value={form.smtpUser} onChange={(e) => update('smtpUser', e.target.value)} placeholder="oma@gmail.com" /></label>
+          <label>
+            Max viestejä per domain
+            <input
+              type="number"
+              min="1"
+              value={form.maxEmailsPerDomain}
+              onChange={(e) => update('maxEmailsPerDomain', e.target.value)}
+            />
+          </label>
         </div>
-        <label>
-          SMTP-salasana {meta.smtpPassSet ? '(tallennettu — jätä tyhjäksi jos ei vaihdeta)' : ''}
-          <input type="password" value={form.smtpPass} onChange={(e) => update('smtpPass', e.target.value)} placeholder="Gmail-sovellussalasana" />
-        </label>
-        {form.mailProvider === 'custom' && (
-          <div className="grid two">
-            <label>SMTP-palvelin<input value={form.smtpHost} onChange={(e) => update('smtpHost', e.target.value)} /></label>
-            <label>Portti<input type="number" value={form.smtpPort} onChange={(e) => update('smtpPort', e.target.value)} /></label>
+
+        <h2 style={{ marginBottom: 0 }}>Lähettäjätilit (voit käyttää useita yhtä aikaa)</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Automaatio kierrättää tilejä. Lisää useampi Gmail/Brevo, jos haluat jakaa lähetyksen.
+        </p>
+        {(form.mailAccounts || []).map((account, index) => (
+          <div key={account.id || index} className="account-card grid">
+            <div className="hero" style={{ marginBottom: 0 }}>
+              <strong>Tili {index + 1}</strong>
+              <button type="button" className="btn secondary" onClick={() => removeAccount(index)}>Poista</button>
+            </div>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={account.enabled !== false}
+                onChange={(e) => updateAccount(index, 'enabled', e.target.checked)}
+              />
+              Käytä tätä tiliä lähetyksissä
+            </label>
+            <div className="grid two">
+              <label>Lähettäjän sähköposti<input type="email" value={account.fromEmail} onChange={(e) => updateAccount(index, 'fromEmail', e.target.value)} required={index === 0} /></label>
+              <label>
+                Palvelu
+                <select value={account.mailProvider || 'gmail'} onChange={(e) => updateAccount(index, 'mailProvider', e.target.value)}>
+                  <option value="gmail">Gmail</option>
+                  <option value="brevo">Brevo</option>
+                  <option value="custom">Oma SMTP</option>
+                </select>
+              </label>
+            </div>
+            <div className="grid two">
+              <label>SMTP-käyttäjä<input value={account.smtpUser} onChange={(e) => updateAccount(index, 'smtpUser', e.target.value)} placeholder={account.fromEmail || 'oma@gmail.com'} /></label>
+              <label>
+                SMTP-salasana {account.smtpPassSet ? '(tallennettu)' : ''}
+                <input type="password" value={account.smtpPass} onChange={(e) => updateAccount(index, 'smtpPass', e.target.value)} placeholder="Gmail-sovellussalasana" />
+              </label>
+            </div>
+            {account.mailProvider === 'custom' && (
+              <div className="grid two">
+                <label>SMTP-palvelin<input value={account.smtpHost} onChange={(e) => updateAccount(index, 'smtpHost', e.target.value)} /></label>
+                <label>Portti<input type="number" value={account.smtpPort} onChange={(e) => updateAccount(index, 'smtpPort', e.target.value)} /></label>
+              </div>
+            )}
           </div>
-        )}
+        ))}
+        <div className="actions" style={{ marginTop: 0 }}>
+          <button type="button" className="btn secondary" onClick={addAccount}>Lisää lähettäjätili</button>
+        </div>
 
         <h2 style={{ marginBottom: 0 }}>Arvion rajat</h2>
         <div className="grid two">

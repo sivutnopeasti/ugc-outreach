@@ -13,7 +13,13 @@ export default function CampaignPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [settings, setSettings] = useState({ testMode: true, testInboxEmail: '', fromEmail: '' });
+  const [settings, setSettings] = useState({
+    testMode: true,
+    testInboxEmail: '',
+    fromEmail: '',
+    maxSendPerBatch: 6,
+    maxEmailsPerDomain: 2,
+  });
   const initialized = useRef(false);
   const stepping = useRef(false);
 
@@ -139,34 +145,35 @@ export default function CampaignPage() {
   }
 
   async function send() {
+    const batchLimit = Number(settings.maxSendPerBatch) || 6;
+    const willSend = Math.min(selected.length, batchLimit);
     const confirmText = testMode
-      ? `TESTITILA: lähetetään ${selected.length} viestiä osoitteeseen ${testInbox} (ei yrityksille). Jatketaanko?`
-      : `Lähetetäänkö viesti ${selected.length} yritykselle?`;
+      ? `TESTITILA: lähetetään enintään ${willSend}/${selected.length} viestiä osoitteeseen ${testInbox} (max ${batchLimit}/lähetys). Jatketaanko?`
+      : `Lähetetäänkö enintään ${willSend}/${selected.length} viestiä (max ${batchLimit}/lähetys)?`;
     if (!confirm(confirmText)) return;
     setSending(true);
     setError('');
     setMessage('');
     try {
-      let remaining = [...selected];
-      let totalSent = 0;
-      while (remaining.length > 0) {
-        const res = await fetch(`/api/campaigns/${id}/send`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ businessIds: remaining }),
-        });
-        const body = await res.json();
-        if (!res.ok) throw new Error(body.error || 'Lähetys epäonnistui');
-        setCampaign(body.run);
-        totalSent += body.sent || 0;
-        const processed = new Set(body.processedIds || []);
-        remaining = remaining.filter((item) => !processed.has(item));
-        if ((body.remaining || 0) <= 0) break;
-      }
-      setMessage(testMode
-        ? `Testilähetys: ${totalSent} viestiä → ${testInbox}`
-        : `Lähetetty ${totalSent} viestiä.`);
-      setSelected([]);
+      const res = await fetch(`/api/campaigns/${id}/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ businessIds: selected }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Lähetys epäonnistui');
+      setCampaign(body.run);
+      const totalSent = body.sent || 0;
+      const skipped = body.skippedLimit || 0;
+      setMessage(
+        `${testMode ? 'Testilähetys' : 'Lähetys'}: ${totalSent} viestiä`
+        + (testMode ? ` → ${testInbox}` : '')
+        + (skipped ? ` · ${skipped} jäi jonoon rajojen takia` : ''),
+      );
+      setSelected((current) => current.filter((item) => {
+        const row = (body.run?.results || []).find((entry) => entry.businessId === item);
+        return row && !alreadySent(row);
+      }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -207,7 +214,7 @@ export default function CampaignPage() {
       {testMode && (
         <div className="banner-test" style={{ marginBottom: 16 }}>
           Testitila päällä — Instagram-analyysi toimii, mutta sähköpostit menevät osoitteeseen <strong>{testInbox}</strong>, ei yrityksille.
-          Voit poistaa testitilan Asetuksista, kun olet valmis.
+          Max {settings.maxSendPerBatch || 6} viestiä / lähetys, max {settings.maxEmailsPerDomain || 2} / domain.
         </div>
       )}
 
