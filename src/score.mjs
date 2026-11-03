@@ -107,7 +107,9 @@ export function assessPresence(signals, thresholds = DEFAULT_THRESHOLDS) {
     return {
       ...base,
       decision: 'unknown',
-      reasons: [`Instagram rajoitti hakua kesken erän (${shortError(signals.instagramError)}) — odota hetki tai lisää sessionid asetuksiin`],
+      reasons: [
+        `Instagram rajoitti hakua kesken erän (${shortError(signals.instagramError)}) — odota 3–5 min, pienennä erää, ja varmista sessionid + csrftoken + ds_user_id`,
+      ],
     };
   }
 

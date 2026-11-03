@@ -28,7 +28,7 @@ Jos tiliä ei löydy verkkosivulta, sovellus kokeilee muutamaa käyttäjänimeä
 - **Vahvistettu** → käytetään automaattisesti
 - **Epäselvä** → sinun pitää painaa **Vahvista** tai **Hylkää** kampanjassa (ei lähetystä ennen sitä)
 
-Instagram rate-limitoi Vercelin IP:itä herkästi (`HTTP 429`). Pipeline hidastaa hakuja automaattisesti. Jos rivit jäävät tilaan *“julkisia lukuja ei saatu”*, lisää Asetuksiin Instagram-`sessionid` (tai Vercel-env `IG_SESSIONID`) omasta kirjautuneesta selaimesta.
+Instagram rate-limitoi Vercelin IP:itä herkästi (`HTTP 429`). Pelkkä `sessionid` ei aina riitä — Asetuksiin kannattaa liittää `sessionid; csrftoken; ds_user_id` samasta Chrome-Cookies-listasta (tai Vercel-env `IG_SESSIONID`). Kun Instagram vastaa “odota muutama minuutti”, pipeline pitää ~3 min tauon eikä hakkaa API:a tyhjäksi.
 
 CSV:
 

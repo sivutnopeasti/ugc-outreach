@@ -8,7 +8,7 @@ import { assessPresence, usernameFromInstagram } from './score.mjs';
 import { fetchAds, fetchInstagram, fetchSite, lookupCompany, normalizeWebsite, pickEmail } from './sources.mjs';
 import { buildMessage } from './template.mjs';
 
-const MAX_HANDLE_CANDIDATES = 4;
+const MAX_HANDLE_CANDIDATES = 2;
 
 export async function loadRows(csvPath) {
   const text = await readFile(csvPath, 'utf8');

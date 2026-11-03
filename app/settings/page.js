@@ -323,23 +323,24 @@ export default function SettingsPage() {
 
         <h2 style={{ marginBottom: 0 }}>Instagram-lukujen haku</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          Instagram rajoittaa Vercelin IP-osoitteita. Jos somearvio jää usein tyhjäksi, lisää selaimen
-          <code> sessionid</code>-eväste (Chrome → Instagram → Application → Cookies) tai Vercel-env <code>IG_SESSIONID</code>.
+          Pelkkä <code>sessionid</code> ei aina riitä Vercelissä. Kopioi mieluiten kolme evästettä samasta Cookies-listasta:
+          <code> sessionid</code>, <code>csrftoken</code> ja <code>ds_user_id</code>.
+          Liitä ne yhteen riviin, esim. <code>sessionid=...; csrftoken=...; ds_user_id=...</code>
         </p>
         <div className={meta.instagramSessionSet ? 'success' : 'banner-test'}>
           {meta.instagramSessionFromEnv
             ? 'IG_SESSIONID on käytössä ympäristömuuttujasta.'
             : meta.instagramSessionSet
-              ? 'Instagram-sessionid on tallennettu asetuksiin.'
-              : 'Ei sessionid:ää — haku toimii kun Instagram ei rate-limitoi, mutta eräajoissa luvut voivat jäädä saamatta.'}
+              ? 'Instagram-evästeet on tallennettu asetuksiin.'
+              : 'Ei Instagram-evästeitä — eräajoissa Instagram rajoittaa hakua herkästi.'}
         </div>
         <label>
-          Instagram sessionid {meta.instagramSessionSet ? '(tallennettu — jätä tyhjäksi säilyttääksesi)' : ''}
+          Instagram-evästeet {meta.instagramSessionSet ? '(tallennettu — jätä tyhjäksi säilyttääksesi)' : ''}
           <input
             type="password"
             value={form.instagramSessionId}
             onChange={(e) => update('instagramSessionId', e.target.value)}
-            placeholder="liitä sessionid tähän"
+            placeholder="sessionid=...; csrftoken=...; ds_user_id=..."
             autoComplete="off"
           />
         </label>

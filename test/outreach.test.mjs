@@ -7,7 +7,7 @@ import { aiConfig, parseHandleList } from '../src/ai.mjs';
 import { countCsvDataRows, normalizeBusinessId, parseCsv, rowFromRecord, sliceCsvText } from '../src/csv.mjs';
 import { handleCandidatesFromName, profileMatchesCompany, scoreInstagramMatch } from '../src/handles.mjs';
 import { parseJsonSafe } from '../src/http.mjs';
-import { parseProfileFromHtml } from '../src/instagram.mjs';
+import { normalizeInstagramCookies, parseProfileFromHtml } from '../src/instagram.mjs';
 import { emailDomain, pickSenderAccount, resolveMailAccounts, resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
 import { helsinkiDayKey } from '../src/store.mjs';
 import { assessPresence } from '../src/score.mjs';
@@ -82,6 +82,19 @@ test('missing data is not treated as a weak account', () => {
 
   const noSite = assessPresence({ ads: { checked: false, active: null } });
   assert.equal(noSite.decision, 'unknown');
+});
+
+test('instagram cookie paste accepts full cookie header', () => {
+  const auth = normalizeInstagramCookies('sessionid=123%3Aabc; csrftoken=tok; ds_user_id=123');
+  assert.equal(auth.sessionId, '123:abc');
+  assert.equal(auth.csrfToken, 'tok');
+  assert.equal(auth.dsUserId, '123');
+  assert.match(auth.cookie, /sessionid=123:abc/);
+  assert.match(auth.cookie, /csrftoken=tok/);
+
+  const bare = normalizeInstagramCookies('999%3Axyz');
+  assert.equal(bare.sessionId, '999:xyz');
+  assert.equal(bare.dsUserId, '999');
 });
 
 test('instagram HTML og meta can supply follower counts', () => {

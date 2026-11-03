@@ -8,7 +8,8 @@ const ANDROID_UA =
   'Mozilla/5.0 (Linux; Android 14; SM-S921B Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0.0.0 Mobile Safari/537.36 Instagram 340.0.0.36.90 Android (34/14; 480dpi; 1080x2340; samsung; SM-S921B; e1s; s5e9945; en_US; 629151101)';
 const WEB_APP_ID = '936619743392459';
 const ANDROID_APP_ID = '3419628305025917';
-const DEFAULT_GAP_MS = 4000;
+const DEFAULT_GAP_MS = 8000;
+const COOLDOWN_MS = 3 * 60 * 1000;
 const RATE_LIMIT_STATUSES = new Set([401, 403, 429]);
 
 export async function fetchInstagramProfile(username, options = {}) {
@@ -19,31 +20,56 @@ export async function fetchInstagramProfile(username, options = {}) {
     throw error;
   }
 
-  await waitForInstagramGap(options.minGapMs ?? DEFAULT_GAP_MS);
-  const sessionId = String(options.sessionId || process.env.IG_SESSIONID || '').trim();
-  const cookie = sessionId ? `sessionid=${sessionId}` : '';
+  const auth = normalizeInstagramCookies(options.sessionId || process.env.IG_SESSIONID || '');
+  await assertNotInCooldown();
+  await waitForInstagramGap(options.minGapMs ?? (auth.sessionId ? DEFAULT_GAP_MS : 12000));
 
   let lastError = null;
-  const apiAttempts = [
-    {
-      host: 'i.instagram.com',
-      headers: apiHeaders({
-        handle,
-        appId: ANDROID_APP_ID,
-        userAgent: ANDROID_UA,
-        cookie,
-      }),
-    },
-    {
-      host: 'www.instagram.com',
-      headers: apiHeaders({
-        handle,
-        appId: WEB_APP_ID,
-        userAgent: DESKTOP_UA,
-        cookie,
-      }),
-    },
-  ];
+
+  // Logged-in HTML often carries profile metrics without burning the fragile JSON API.
+  if (auth.cookie) {
+    try {
+      const htmlProfile = await fetchViaProfileHtml(handle, auth);
+      if (htmlProfile) return htmlProfile;
+    } catch (error) {
+      lastError = error;
+      if (error.code === 'rate_limited') {
+        await markInstagramCooldown(error.message);
+        throw error;
+      }
+    }
+  }
+
+  const apiAttempts = auth.sessionId
+    ? [{
+        host: 'www.instagram.com',
+        headers: apiHeaders({
+          handle,
+          appId: WEB_APP_ID,
+          userAgent: DESKTOP_UA,
+          auth,
+        }),
+      }]
+    : [
+        {
+          host: 'i.instagram.com',
+          headers: apiHeaders({
+            handle,
+            appId: ANDROID_APP_ID,
+            userAgent: ANDROID_UA,
+            auth,
+          }),
+        },
+        {
+          host: 'www.instagram.com',
+          headers: apiHeaders({
+            handle,
+            appId: WEB_APP_ID,
+            userAgent: DESKTOP_UA,
+            auth,
+          }),
+        },
+      ];
 
   for (const attempt of apiAttempts) {
     try {
@@ -52,29 +78,79 @@ export async function fetchInstagramProfile(username, options = {}) {
     } catch (error) {
       lastError = error;
       if (error.code === 'rate_limited') {
-        await sleep(Math.min(Number(options.rateLimitWaitMs || 8000), 12000));
-        try {
-          const retried = await fetchViaWebProfileInfo(handle, attempt.host, attempt.headers);
-          if (retried) return retried;
-        } catch (retryError) {
-          lastError = retryError;
+        await markInstagramCooldown(error.message);
+        // One short retry only when authenticated; otherwise fail fast into cooldown.
+        if (auth.sessionId) {
+          await sleep(Math.min(Number(options.rateLimitWaitMs || 10000), 15000));
+          try {
+            const retried = await fetchViaWebProfileInfo(handle, attempt.host, attempt.headers);
+            if (retried) return retried;
+          } catch (retryError) {
+            lastError = retryError;
+            if (retryError.code === 'rate_limited') await markInstagramCooldown(retryError.message);
+          }
         }
         break;
       }
     }
   }
 
-  try {
-    const htmlProfile = await fetchViaProfileHtml(handle, cookie);
-    if (htmlProfile) return htmlProfile;
-  } catch (error) {
-    lastError = lastError || error;
+  if (!auth.cookie) {
+    try {
+      const htmlProfile = await fetchViaProfileHtml(handle, auth);
+      if (htmlProfile) return htmlProfile;
+    } catch (error) {
+      lastError = lastError || error;
+      if (error.code === 'rate_limited') await markInstagramCooldown(error.message);
+    }
   }
 
   const hint = lastError?.message || `Instagram-haku epäonnistui (@${handle})`;
   const error = new Error(hint);
   error.code = lastError?.code || 'bad_response';
   throw error;
+}
+
+/** Accepts bare sessionid, `sessionid=...`, or a full Cookie header snippet. */
+export function normalizeInstagramCookies(raw) {
+  let text = String(raw || '').trim().replace(/^["']|["']$/g, '');
+  if (!text) return { cookie: '', sessionId: '', csrfToken: '', dsUserId: '' };
+
+  // Users sometimes paste "Cookie: sessionid=..."
+  text = text.replace(/^cookie:\s*/i, '');
+
+  const parts = {};
+  if (text.includes('=')) {
+    for (const segment of text.split(';')) {
+      const idx = segment.indexOf('=');
+      if (idx < 0) continue;
+      const key = segment.slice(0, idx).trim();
+      const value = decodeCookieValue(segment.slice(idx + 1).trim());
+      if (key && value) parts[key] = value;
+    }
+  } else {
+    parts.sessionid = decodeCookieValue(text);
+  }
+
+  const sessionId = parts.sessionid || '';
+  const csrfToken = parts.csrftoken || '';
+  const dsUserId = parts.ds_user_id || (sessionId.includes(':') ? sessionId.split(':')[0] : '');
+
+  const cookieParts = [];
+  if (sessionId) cookieParts.push(`sessionid=${sessionId}`);
+  if (csrfToken) cookieParts.push(`csrftoken=${csrfToken}`);
+  if (dsUserId) cookieParts.push(`ds_user_id=${dsUserId}`);
+  for (const [key, value] of Object.entries(parts)) {
+    if (['sessionid', 'csrftoken', 'ds_user_id'].includes(key)) continue;
+    cookieParts.push(`${key}=${value}`);
+  }
+
+  return {
+    cookie: cookieParts.join('; '),
+    sessionId,
+    csrfToken,
+    dsUserId,
+  };
 }
 
 export async function waitForInstagramGap(minGapMs = DEFAULT_GAP_MS) {
@@ -84,10 +160,19 @@ export async function waitForInstagramGap(minGapMs = DEFAULT_GAP_MS) {
     const raw = await kvGet('ig:lastAt');
     const last = Number(raw || 0);
     const wait = last + gap - Date.now();
-    if (wait > 0) await sleep(Math.min(wait, 15000));
+    if (wait > 0) await sleep(Math.min(wait, 20000));
     await kvSet('ig:lastAt', String(Date.now()));
   } catch {
-    await sleep(Math.min(gap, 5000));
+    await sleep(Math.min(gap, 8000));
+  }
+}
+
+export async function getInstagramCooldownRemaining() {
+  try {
+    const until = Number((await kvGet('ig:cooldownUntil')) || 0);
+    return Math.max(0, until - Date.now());
+  } catch {
+    return 0;
   }
 }
 
@@ -98,21 +183,38 @@ export function parseProfileFromHtml(html, handle) {
 }
 
 export function isInstagramRateLimitError(error) {
-  return error?.code === 'rate_limited' || /429|rate.?limit|odota muutama|please wait/i.test(String(error?.message || ''));
+  return error?.code === 'rate_limited' || /429|rate.?limit|odota muutama|please wait|cooldown|rajoitti/i.test(String(error?.message || ''));
+}
+
+async function assertNotInCooldown() {
+  const remaining = await getInstagramCooldownRemaining();
+  if (remaining <= 0) return;
+  const minutes = Math.max(1, Math.ceil(remaining / 60000));
+  const error = new Error(
+    `Instagram-cooldown aktiivinen (~${minutes} min). Odota tai pienennä eräkokoa — sessionid ei ohita IP-rajaa heti.`,
+  );
+  error.code = 'rate_limited';
+  throw error;
+}
+
+async function markInstagramCooldown(message = '') {
+  const until = Date.now() + COOLDOWN_MS;
+  try {
+    await kvSet('ig:cooldownUntil', String(until));
+    await kvSet('ig:lastAt', String(Date.now()));
+  } catch {
+    /* local/redis unavailable — still throw to stop the batch */
+  }
+  return message;
 }
 
 async function fetchViaWebProfileInfo(handle, host, headers) {
   const profileUrl = `https://${host}/api/v1/users/web_profile_info/?username=${encodeURIComponent(handle)}`;
-  let response = await instagramJson(profileUrl, headers);
-  if (response.status === 429) {
-    await sleep(4000);
-    response = await instagramJson(profileUrl, headers);
-  }
-
+  const response = await instagramJson(profileUrl, headers);
   const user = response.body?.data?.user;
   if (user) return normalizeApiUser(user, handle);
 
-  if (RATE_LIMIT_STATUSES.has(response.status) || response.body?.require_login) {
+  if (RATE_LIMIT_STATUSES.has(response.status) || response.body?.require_login || isWaitMessage(response.body?.message)) {
     const error = new Error(
       response.body?.message
         ? `Instagram rajoitti hakua (@${handle}): ${response.body.message}`
@@ -130,13 +232,15 @@ async function fetchViaWebProfileInfo(handle, host, headers) {
   throw error;
 }
 
-async function fetchViaProfileHtml(handle, cookie) {
+async function fetchViaProfileHtml(handle, auth) {
   const headers = {
     'user-agent': DESKTOP_UA,
     accept: 'text/html,application/xhtml+xml',
     'accept-language': 'fi-FI,fi;q=0.9,en;q=0.8',
   };
-  if (cookie) headers.cookie = cookie;
+  if (auth.cookie) headers.cookie = auth.cookie;
+  if (auth.csrfToken) headers['x-csrftoken'] = auth.csrfToken;
+
   const response = await fetchText(`https://www.instagram.com/${handle}/`, {
     headers,
     timeoutMs: 25000,
@@ -147,11 +251,20 @@ async function fetchViaProfileHtml(handle, cookie) {
     error.code = RATE_LIMIT_STATUSES.has(response.status) ? 'rate_limited' : 'bad_response';
     throw error;
   }
+  if (/login|sign.?up|require_login/i.test(response.text.slice(0, 4000)) && !/follower_count|edge_followed_by|og:description/i.test(response.text)) {
+    const error = new Error(
+      auth.sessionId
+        ? `Instagram-sessionid ei kelpaa tai on vanhentunut (@${handle})`
+        : `Instagram vaatii kirjautumisen (@${handle})`,
+    );
+    error.code = 'rate_limited';
+    throw error;
+  }
   const profile = parseProfileFromHtml(response.text, handle);
   if (!profile) {
     const error = new Error(
-      cookie
-        ? `Instagram-sivulta ei löytynyt julkisia lukuja (@${handle})`
+      auth.sessionId
+        ? `Instagram-sivulta ei löytynyt julkisia lukuja (@${handle}) — liitä myös csrftoken + ds_user_id`
         : `Instagram ei antanut julkisia lukuja ilman istuntoa (@${handle})`,
     );
     error.code = 'no_public_metrics';
@@ -327,16 +440,33 @@ function findUserNode(value, depth = 0) {
   return null;
 }
 
-function apiHeaders({ handle, appId, userAgent, cookie }) {
+function apiHeaders({ handle, appId, userAgent, auth }) {
   const headers = {
     'user-agent': userAgent,
     'x-ig-app-id': appId,
     accept: '*/*',
     'accept-language': 'fi-FI,fi;q=0.9,en;q=0.8',
     referer: `https://www.instagram.com/${handle}/`,
+    'x-requested-with': 'XMLHttpRequest',
+    'x-ig-www-claim': '0',
   };
-  if (cookie) headers.cookie = cookie;
+  if (auth.cookie) headers.cookie = auth.cookie;
+  if (auth.csrfToken) headers['x-csrftoken'] = auth.csrfToken;
   return headers;
+}
+
+function decodeCookieValue(value) {
+  const raw = String(value || '').trim().replace(/^["']|["']$/g, '');
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function isWaitMessage(message) {
+  return /please wait|odota|try again|muutama minuutti/i.test(String(message || ''));
 }
 
 function numberOrNull(value) {
