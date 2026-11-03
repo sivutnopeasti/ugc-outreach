@@ -5,7 +5,7 @@
  */
 
 const GROK_BASE_URL = 'https://api.x.ai/v1';
-const GROK_DEFAULT_MODEL = 'grok-3-mini';
+const GROK_DEFAULT_MODEL = process.env.GROK_MODEL || 'grok-3-mini';
 
 export function aiConfig(env = process.env) {
   const grokToken = env.GROK_TOKEN || env.XAI_API_KEY || process.env.GROK_TOKEN || process.env.XAI_API_KEY || '';
@@ -81,12 +81,18 @@ async function chat(config, prompt, fetchImpl) {
       ],
     }),
   });
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`AI-kutsu epäonnistui (${response.status}): ${body.slice(0, 200)}`);
+  const raw = await response.text().catch(() => '');
+  let data = null;
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    throw new Error(`Grok/AI palautti ei-JSONia (${response.status}): ${raw.replace(/\s+/g, ' ').trim().slice(0, 180)}`);
   }
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || '';
+  if (!response.ok) {
+    const detail = data?.error?.message || data?.message || raw.slice(0, 200);
+    throw new Error(`AI-kutsu epäonnistui (${response.status}): ${detail}`);
+  }
+  return data?.choices?.[0]?.message?.content || '';
 }
 
 export function parseHandleList(content) {

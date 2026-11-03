@@ -16,11 +16,17 @@ async function redis(command) {
     },
     body: JSON.stringify(command),
   });
-  if (!response.ok) {
-    throw new Error(`Redis-virhe ${response.status}: ${(await response.text()).slice(0, 200)}`);
+  const raw = await response.text();
+  let body = null;
+  try {
+    body = raw ? JSON.parse(raw) : null;
+  } catch {
+    throw new Error(`Redis palautti ei-JSONia (${response.status}): ${String(raw).replace(/\s+/g, ' ').trim().slice(0, 180)}`);
   }
-  const body = await response.json();
-  if (body.error) throw new Error(body.error);
+  if (!response.ok) {
+    throw new Error(`Redis-virhe ${response.status}: ${body?.error || raw.slice(0, 200)}`);
+  }
+  if (body?.error) throw new Error(body.error);
   return body.result;
 }
 
@@ -74,6 +80,7 @@ function fsPath(key) {
   if (key.startsWith('run:')) return path.join(FS_ROOT, 'runs', `${key.slice(4)}.json`);
   if (key.startsWith('csv:')) return path.join(FS_ROOT, 'uploads', `${key.slice(4)}.csv`);
   if (key.startsWith('send-stats:')) return path.join(FS_ROOT, 'send-stats', `${key.slice('send-stats:'.length)}.json`);
+  if (key.startsWith('pipeline:')) return path.join(FS_ROOT, 'pipelines', `${key.slice('pipeline:'.length)}.json`);
   return path.join(FS_ROOT, `${key}.txt`);
 }
 

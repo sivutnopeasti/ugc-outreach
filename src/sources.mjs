@@ -1,4 +1,4 @@
-import { curlJson, fetchJson, fetchText } from './http.mjs';
+import { fetchJson, fetchText, instagramJson, jsonErrorHint } from './http.mjs';
 import { usernameFromInstagram } from './score.mjs';
 
 const CONTACT_PATHS = ['/yhteystiedot', '/ota-yhteytta', '/contact', '/meista'];
@@ -85,15 +85,18 @@ export async function fetchInstagram(username) {
     throw error;
   }
   const profileUrl = `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(handle)}`;
-  let response = await curlJson(profileUrl, instagramHeaders(handle));
+  let response = await instagramJson(profileUrl, instagramHeaders(handle));
   if (response.status === 429) {
     await new Promise((resolve) => setTimeout(resolve, 4000));
-    response = await curlJson(profileUrl, instagramHeaders(handle));
+    response = await instagramJson(profileUrl, instagramHeaders(handle));
   }
   const user = response.body?.data?.user;
   if (!user) {
-    const error = new Error(`Instagram ei palauttanut tiliä ${handle}`);
-    error.code = 'not_found';
+    const hint = response.body
+      ? `Instagram ei palauttanut tiliä ${handle}`
+      : `Instagram-haku epäonnistui (@${handle}): ${jsonErrorHint(response.text, response.status)}`;
+    const error = new Error(hint);
+    error.code = response.body ? 'not_found' : 'bad_response';
     throw error;
   }
   const posts = (user.edge_owner_to_timeline_media?.edges || []).slice(0, 12).map((edge) => {

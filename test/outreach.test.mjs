@@ -6,6 +6,7 @@ import test from 'node:test';
 import { aiConfig, parseHandleList } from '../src/ai.mjs';
 import { normalizeBusinessId, parseCsv, rowFromRecord } from '../src/csv.mjs';
 import { handleCandidatesFromName, profileMatchesCompany, scoreInstagramMatch } from '../src/handles.mjs';
+import { parseJsonSafe } from '../src/http.mjs';
 import { emailDomain, pickSenderAccount, resolveMailAccounts, resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
 import { helsinkiDayKey } from '../src/store.mjs';
 import { assessPresence } from '../src/score.mjs';
@@ -293,6 +294,11 @@ test('uncertain Instagram match waits for manual review', async () => {
 
 test('helsinki day key is YYYY-MM-DD', () => {
   assert.match(helsinkiDayKey(new Date('2026-11-03T12:00:00Z')), /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test('parseJsonSafe tolerates Request Entity Too Large text', () => {
+  assert.equal(parseJsonSafe('Request Entity Too Large'), null);
+  assert.deepEqual(parseJsonSafe('{"ok":true}'), { ok: true });
 });
 
 test('sender accounts rotate within domain limits', () => {

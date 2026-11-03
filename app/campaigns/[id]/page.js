@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Shell from '../../components/Shell';
 import PipelinePanel from '../../components/PipelinePanel';
+import { readJson } from '../../lib/api';
 
 export default function CampaignPage() {
   const { id } = useParams();
@@ -33,7 +34,7 @@ export default function CampaignPage() {
       router.push('/login');
       return null;
     }
-    const body = await res.json();
+    const body = await readJson(res);
     if (!res.ok) throw new Error(body.error || 'Kampanjaa ei löytynyt');
     setCampaign(body.campaign);
     if (body.campaign.status === 'ready' && !initialized.current) {
@@ -49,7 +50,7 @@ export default function CampaignPage() {
   async function loadSettings() {
     const res = await fetch('/api/settings');
     if (!res.ok) return;
-    const body = await res.json();
+    const body = await readJson(res);
     if (body.settings) setSettings(body.settings);
     if (body.daily) setDaily(body.daily);
   }
@@ -78,7 +79,7 @@ export default function CampaignPage() {
       let current = await load();
       while (current && (current.status === 'queued' || current.status === 'running')) {
         const res = await fetch(`/api/campaigns/${id}/step`, { method: 'POST' });
-        const body = await res.json();
+        const body = await readJson(res);
         if (!res.ok) throw new Error(body.error || 'Analyysi epäonnistui');
         current = body.campaign;
         setCampaign(current);
@@ -157,7 +158,7 @@ export default function CampaignPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ businessId, action }),
       });
-      const body = await res.json();
+      const body = await readJson(res);
       if (!res.ok) throw new Error(body.error || 'Vahvistus epäonnistui');
       setCampaign(body.campaign);
       if (action === 'confirm') {
@@ -194,7 +195,7 @@ export default function CampaignPage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ businessIds: selected }),
       });
-      const body = await res.json();
+      const body = await readJson(res);
       if (!res.ok) throw new Error(body.error || 'Lähetys epäonnistui');
       setCampaign(body.run);
       if (typeof body.sentToday === 'number') {

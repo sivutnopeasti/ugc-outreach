@@ -199,6 +199,25 @@ export async function createRun({ name, csvText }) {
 export async function saveRun(run) {
   await ensureLocalDirs();
   await kvSet(`run:${run.id}`, JSON.stringify(run));
+  if (run.pipeline) {
+    await kvSet(`pipeline:${run.id}`, JSON.stringify(run.pipeline));
+  }
+}
+
+/** Kevyt live-päivitys ilman koko kampanjan uudelleenkirjoitusta. */
+export async function savePipeline(runId, pipeline, message = '') {
+  await ensureLocalDirs();
+  await kvSet(`pipeline:${runId}`, JSON.stringify(pipeline));
+  if (message) {
+    try {
+      const run = await getRun(runId);
+      run.pipeline = pipeline;
+      run.message = message;
+      await kvSet(`run:${run.id}`, JSON.stringify(run));
+    } catch {
+      /* pipeline-avain riittää pollaukseen */
+    }
+  }
 }
 
 export async function getRun(id) {
@@ -208,7 +227,23 @@ export async function getRun(id) {
     error.status = 404;
     throw error;
   }
-  return JSON.parse(raw);
+  let run;
+  try {
+    run = JSON.parse(raw);
+  } catch {
+    const error = new Error('Kampanjadata on vioittunut (ei kelvollista JSONia)');
+    error.status = 500;
+    throw error;
+  }
+  const live = await kvGet(`pipeline:${id}`);
+  if (live) {
+    try {
+      run.pipeline = JSON.parse(live);
+    } catch {
+      /* pidä run.pipeline */
+    }
+  }
+  return run;
 }
 
 export async function getRunCsv(id) {
@@ -251,6 +286,7 @@ export async function listRuns() {
 export async function deleteRun(id) {
   await kvDel(`run:${id}`);
   await kvDel(`csv:${id}`);
+  await kvDel(`pipeline:${id}`);
 }
 
 export function hashSecret(value) {

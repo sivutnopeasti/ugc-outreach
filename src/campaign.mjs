@@ -19,6 +19,7 @@ import {
   readSuppression,
   readDailySendStats,
   recordDailySend,
+  savePipeline,
 } from './store.mjs';
 
 export async function prepareAnalysis(runId) {
@@ -106,9 +107,7 @@ export async function analyzeNext(runId) {
     const result = await evaluateCompany(current, deps, {
       ...options,
       onProgress: async ({ phase, label, companyName }) => {
-        const latest = await getRun(runId);
-        latest.status = 'running';
-        latest.pipeline = {
+        const pipeline = {
           active: true,
           stage: 'analyze',
           phase,
@@ -119,9 +118,11 @@ export async function analyzeNext(runId) {
           total: rows.length,
           updatedAt: new Date().toISOString(),
         };
-        latest.message = `${latest.pipeline.companyName}: ${label}`;
-        await saveRun(latest);
-        Object.assign(run, latest);
+        const message = `${pipeline.companyName}: ${label}`;
+        run.status = 'running';
+        run.pipeline = pipeline;
+        run.message = message;
+        await savePipeline(runId, pipeline, message);
       },
     });
     applyDeliveryState(result, settings);
