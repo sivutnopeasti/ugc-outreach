@@ -13,6 +13,7 @@ export default function CampaignPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [settings, setSettings] = useState({ testMode: true, testInboxEmail: '', fromEmail: '' });
   const initialized = useRef(false);
   const stepping = useRef(false);
 
@@ -27,12 +28,19 @@ export default function CampaignPage() {
     setCampaign(body.campaign);
     if (body.campaign.status === 'ready' && !initialized.current) {
       const defaults = (body.campaign.results || [])
-        .filter((row) => row.decision === 'weak' && row.email && row.delivery !== 'lähetetty')
+        .filter((row) => row.decision === 'weak' && row.email && !alreadySent(row))
         .map((row) => row.businessId);
       setSelected(defaults);
       initialized.current = true;
     }
     return body.campaign;
+  }
+
+  async function loadSettings() {
+    const res = await fetch('/api/settings');
+    if (!res.ok) return;
+    const body = await res.json();
+    if (body.settings) setSettings(body.settings);
   }
 
   async function stepUntilDone() {
@@ -48,7 +56,7 @@ export default function CampaignPage() {
         setCampaign(current);
         if (current.status === 'ready' && !initialized.current) {
           const defaults = (current.results || [])
-            .filter((row) => row.decision === 'weak' && row.email && row.delivery !== 'lähetetty')
+            .filter((row) => row.decision === 'weak' && row.email && !alreadySent(row))
             .map((row) => row.businessId);
           setSelected(defaults);
           initialized.current = true;
@@ -62,6 +70,7 @@ export default function CampaignPage() {
   }
 
   useEffect(() => {
+    loadSettings().catch(() => {});
     load()
       .then((current) => {
         if (current && (current.status === 'queued' || current.status === 'running')) {
@@ -78,9 +87,12 @@ export default function CampaignPage() {
       weak: rows.filter((row) => row.decision === 'weak').length,
       strong: rows.filter((row) => row.decision === 'strong').length,
       unknown: rows.filter((row) => row.decision === 'unknown' || row.decision === 'skip').length,
-      sent: rows.filter((row) => row.delivery === 'lähetetty').length,
+      sent: rows.filter((row) => alreadySent(row)).length,
     };
   }, [campaign]);
+
+  const testInbox = settings.testInboxEmail || settings.fromEmail || 'lähettäjän osoitteeseen';
+  const testMode = settings.testMode !== false;
 
   function toggle(idValue) {
     setSelected((current) => (
@@ -93,13 +105,16 @@ export default function CampaignPage() {
   function toggleAllWeak() {
     if (!campaign) return;
     const ids = campaign.results
-      .filter((row) => row.decision === 'weak' && row.email && row.delivery !== 'lähetetty')
+      .filter((row) => row.decision === 'weak' && row.email && !alreadySent(row))
       .map((row) => row.businessId);
     setSelected(ids);
   }
 
   async function send() {
-    if (!confirm(`Lähetetäänkö viesti ${selected.length} yritykselle?`)) return;
+    const confirmText = testMode
+      ? `TESTITILA: lähetetään ${selected.length} viestiä osoitteeseen ${testInbox} (ei yrityksille). Jatketaanko?`
+      : `Lähetetäänkö viesti ${selected.length} yritykselle?`;
+    if (!confirm(confirmText)) return;
     setSending(true);
     setError('');
     setMessage('');
@@ -120,7 +135,9 @@ export default function CampaignPage() {
         remaining = remaining.filter((item) => !processed.has(item));
         if ((body.remaining || 0) <= 0) break;
       }
-      setMessage(`Lähetetty ${totalSent} viestiä.`);
+      setMessage(testMode
+        ? `Testilähetys: ${totalSent} viestiä → ${testInbox}`
+        : `Lähetetty ${totalSent} viestiä.`);
       setSelected([]);
     } catch (err) {
       setError(err.message);
@@ -150,10 +167,21 @@ export default function CampaignPage() {
           )}
           <button type="button" className="btn secondary" onClick={toggleAllWeak}>Valitse kaikki heikot</button>
           <button type="button" className="btn accent" disabled={sending || selected.length === 0} onClick={send}>
-            {sending ? 'Lähetetään…' : `Lähetä valitut (${selected.length})`}
+            {sending
+              ? 'Lähetetään…'
+              : testMode
+                ? `Lähetä testi minulle (${selected.length})`
+                : `Lähetä valitut (${selected.length})`}
           </button>
         </div>
       </div>
+
+      {testMode && (
+        <div className="banner-test" style={{ marginBottom: 16 }}>
+          Testitila päällä — Instagram-analyysi toimii, mutta sähköpostit menevät osoitteeseen <strong>{testInbox}</strong>, ei yrityksille.
+          Voit poistaa testitilan Asetuksista, kun olet valmis.
+        </div>
+      )}
 
       <div className="grid three" style={{ marginBottom: 24 }}>
         <div className="stat"><span className="muted">Heikko some</span><strong>{stats.weak}</strong></div>
@@ -183,7 +211,7 @@ export default function CampaignPage() {
               {(campaign.results || []).map((row) => (
                 <tr key={row.businessId || row.name}>
                   <td>
-                    {row.decision === 'weak' && row.email && row.delivery !== 'lähetetty' ? (
+                    {row.decision === 'weak' && row.email && !alreadySent(row) ? (
                       <input
                         type="checkbox"
                         checked={selected.includes(row.businessId)}
@@ -240,4 +268,10 @@ function statusLabel(status) {
     ready: 'Valmis',
     error: 'Virhe',
   })[status] || status;
+}
+
+function alreadySent(row) {
+  return Boolean(row.sentAt)
+    || String(row.delivery || '').startsWith('lähetetty')
+    || String(row.delivery || '').startsWith('testilähetys');
 }

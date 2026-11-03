@@ -11,6 +11,10 @@ Viesti ohjaa lomakkeelle: https://ugcsuomi.fi/ilmoita-kampanjasta-sisallontuotta
 3. **Asetukset** → Gmail-sovellussalasana
 4. **Kampanjat** → lataa CSV → Analysoi → Esikatselu → Lähetä valitut
 
+### Testitila (oletus päällä)
+
+CSV ja Instagram analysoidaan normaalisti, mutta “Lähetä” lähettää viestit **sinulle** (testiosoite / lähettäjän sähköposti), ei yrityksille. Aiheeseen tulee etuliite `[TEST]` ja viestiin merkintä alkuperäisestä vastaanottajasta. Poista testitila Asetuksista vasta kun olet valmis oikeaan lähetykseen.
+
 CSV:
 
 ```csv

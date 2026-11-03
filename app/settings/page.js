@@ -21,6 +21,8 @@ const EMPTY = {
   minMedianLikes: 30,
   minMedianComments: 3,
   minMedianViews: 1000,
+  testMode: true,
+  testInboxEmail: '',
   appPassword: '',
 };
 
@@ -99,6 +101,28 @@ export default function SettingsPage() {
           <label>Sähköposti<input type="email" value={form.fromEmail} onChange={(e) => update('fromEmail', e.target.value)} required /></label>
         </div>
         <label>Postiosoite<textarea value={form.postalAddress} onChange={(e) => update('postalAddress', e.target.value)} required /></label>
+
+        <h2 style={{ marginBottom: 0 }}>Testitila</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          CSV ja Instagram analysoidaan normaalisti, mutta viestit eivät mene yrityksille — ne tulevat sinulle.
+        </p>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={form.testMode !== false}
+            onChange={(e) => update('testMode', e.target.checked)}
+          />
+          Testitila päällä (suositus kunnes olet valmis oikeaan lähetykseen)
+        </label>
+        <label>
+          Testiosoite (mihin viestit menevät)
+          <input
+            type="email"
+            value={form.testInboxEmail}
+            onChange={(e) => update('testInboxEmail', e.target.value)}
+            placeholder={form.fromEmail || 'sama kuin lähettäjän sähköposti'}
+          />
+        </label>
 
         <h2 style={{ marginBottom: 0 }}>Ilmainen sähköpostilähetys</h2>
         <p className="muted" style={{ marginTop: 0 }}>

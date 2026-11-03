@@ -33,6 +33,8 @@ export async function POST(request) {
       minMedianLikes: Number(body.minMedianLikes || current.minMedianLikes || 30),
       minMedianComments: Number(body.minMedianComments || current.minMedianComments || 3),
       minMedianViews: Number(body.minMedianViews || current.minMedianViews || 1000),
+      testMode: body.testMode === undefined ? current.testMode !== false : Boolean(body.testMode),
+      testInboxEmail: body.testInboxEmail !== undefined ? String(body.testInboxEmail || '').trim() : (current.testInboxEmail || ''),
     };
     if (body.appPassword) next.appPassword = body.appPassword;
     if (body.clearSmtpPass) next.smtpPass = '';

@@ -42,6 +42,8 @@ export function publicSettings(settings) {
     minMedianLikes: settings.minMedianLikes || 30,
     minMedianComments: settings.minMedianComments || 3,
     minMedianViews: settings.minMedianViews || 1000,
+    testMode: settings.testMode !== false,
+    testInboxEmail: settings.testInboxEmail || '',
     hasPassword: Boolean(settings.appPasswordHash),
     setupComplete: Boolean(settings.fromName && settings.fromEmail && settings.postalAddress && settings.appPasswordHash),
     storage: usingRedis() ? 'redis' : 'local',
@@ -67,6 +69,8 @@ export function defaultSettings() {
     minMedianLikes: 30,
     minMedianComments: 3,
     minMedianViews: 1000,
+    testMode: true,
+    testInboxEmail: '',
     appPasswordHash: '',
   };
 }
@@ -163,7 +167,7 @@ export async function listRuns() {
         progress: run.progress,
         total: run.total,
         weakCount: (run.results || []).filter((row) => row.decision === 'weak').length,
-        sentCount: (run.results || []).filter((row) => row.delivery === 'lähetetty').length,
+        sentCount: (run.results || []).filter((row) => row.sentAt || String(row.delivery || '').startsWith('lähetetty') || String(row.delivery || '').startsWith('testilähetys')).length,
         error: run.error || '',
       });
     } catch {

@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { aiConfig } from './ai.mjs';
-import { createMailer } from './mail.mjs';
+import { createMailer, resolveSendTarget } from './mail.mjs';
 import { defaultDeps, evaluateCompany } from './run.mjs';
 import { parseCsv, rowFromRecord } from './csv.mjs';
 import { buildMessage } from './template.mjs';
@@ -129,7 +129,7 @@ export async function sendSelected(runId, businessIds) {
       row.delivery = 'estolistalla';
       continue;
     }
-    if (row.delivery === 'lähetetty') continue;
+    if (row.sentAt || String(row.delivery || '').startsWith('lähetetty') || String(row.delivery || '').startsWith('testilähetys')) continue;
 
     const message = buildMessage({
       companyName: row.name,
@@ -140,24 +140,35 @@ export async function sendSelected(runId, businessIds) {
       fromEmail: settings.fromEmail,
       postalAddress: settings.postalAddress,
     });
+    const target = resolveSendTarget({
+      testMode: settings.testMode !== false,
+      testInboxEmail: settings.testInboxEmail,
+      fromEmail: settings.fromEmail,
+      companyEmail: row.email,
+    });
     await deliver({
-      to: row.email,
-      subject: message.subject,
-      text: message.text,
-      html: message.html,
+      to: target.to,
+      subject: `${target.subjectPrefix}${message.subject}`,
+      text: `${target.prefaceText}${message.text}`,
+      html: `${target.prefaceHtml}${message.html}`,
       headers: {
         'List-Unsubscribe': `<mailto:${settings.fromEmail}?subject=Ei%20kiitos>`,
+        'X-UGC-Intended-Recipient': row.email,
+        'X-UGC-Test-Mode': settings.testMode !== false ? '1' : '0',
       },
     });
-    row.delivery = 'lähetetty';
+    row.delivery = target.label;
+    row.intendedEmail = row.email;
+    row.sentTo = target.to;
     row.sentAt = new Date().toISOString();
     sent += 1;
     await saveRun(run);
   }
 
-  run.message = `Lähetetty ${sent} viestiä`;
+  const modeNote = settings.testMode !== false ? ' (testitila → sinulle)' : '';
+  run.message = `Lähetetty ${sent} viestiä${modeNote}`;
   await saveRun(run);
-  return { sent, run };
+  return { sent, run, testMode: settings.testMode !== false };
 }
 
 // Keep local CLI helper available if needed.

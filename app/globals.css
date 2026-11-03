@@ -211,6 +211,22 @@ th {
   padding: 12px 14px;
   border-radius: 12px;
 }
+.banner-test {
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  grid-template-columns: none;
+}
+.check-row input {
+  width: auto;
+}
 .auth-wrap {
   min-height: 100vh;
   display: grid;

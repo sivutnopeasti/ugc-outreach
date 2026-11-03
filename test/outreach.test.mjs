@@ -6,7 +6,7 @@ import test from 'node:test';
 import { parseHandleList } from '../src/ai.mjs';
 import { normalizeBusinessId, parseCsv, rowFromRecord } from '../src/csv.mjs';
 import { handleCandidatesFromName, profileMatchesCompany } from '../src/handles.mjs';
-import { resolveSmtpConfig } from '../src/mail.mjs';
+import { resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
 import { assessPresence } from '../src/score.mjs';
 import { findInstagram, pickEmail } from '../src/sources.mjs';
 import { evaluateCompany, processFile } from '../src/run.mjs';
@@ -221,6 +221,28 @@ test('name-based Instagram discovery verifies the public profile', async () => {
   assert.equal(result.decision, 'weak');
   assert.equal(result.instagram, 'https://www.instagram.com/esimerkki/');
   assert.equal(result.followers, 40);
+});
+
+test('test mode redirects mail to the operator inbox', () => {
+  const live = resolveSendTarget({
+    testMode: false,
+    testInboxEmail: 'me@ugcsuomi.fi',
+    fromEmail: 'me@ugcsuomi.fi',
+    companyEmail: 'info@yritys.fi',
+  });
+  assert.equal(live.to, 'info@yritys.fi');
+  assert.equal(live.subjectPrefix, '');
+
+  const test = resolveSendTarget({
+    testMode: true,
+    testInboxEmail: '',
+    fromEmail: 'me@ugcsuomi.fi',
+    companyEmail: 'info@yritys.fi',
+  });
+  assert.equal(test.to, 'me@ugcsuomi.fi');
+  assert.equal(test.subjectPrefix, '[TEST] ');
+  assert.match(test.prefaceText, /info@yritys\.fi/);
+  assert.match(test.label, /testilähetys/);
 });
 
 test('evaluateCompany skips a sole trader', async () => {

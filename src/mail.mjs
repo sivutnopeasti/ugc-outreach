@@ -53,3 +53,22 @@ export async function createMailer(env = process.env) {
     headers: message.headers,
   });
 }
+
+/** Testitilassa viesti ohjataan käyttäjälle, ei yritykselle. */
+export function resolveSendTarget({ testMode, testInboxEmail, fromEmail, companyEmail }) {
+  const intended = String(companyEmail || '').trim();
+  if (!testMode) {
+    return { to: intended, subjectPrefix: '', prefaceText: '', prefaceHtml: '', label: 'lähetetty' };
+  }
+  const to = String(testInboxEmail || fromEmail || '').trim();
+  if (!to) {
+    throw Object.assign(new Error('Testitila on päällä, mutta testiosoitetta / lähettäjän sähköpostia ei ole asetettu'), { status: 400 });
+  }
+  return {
+    to,
+    subjectPrefix: '[TEST] ',
+    prefaceText: `TESTITILA — tätä viestiä EI lähetetty yritykselle.\nAlkuperäinen vastaanottaja: ${intended}\n\n`,
+    prefaceHtml: `<p><strong>TESTITILA</strong> — tätä viestiä EI lähetetty yritykselle.<br>Alkuperäinen vastaanottaja: ${intended}</p><hr>`,
+    label: `testilähetys → ${to}`,
+  };
+}

@@ -12,6 +12,8 @@ export default function HomePage() {
   const [csvText, setCsvText] = useState('nimi;y_tunnus;verkkosivu\n');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [testMode, setTestMode] = useState(true);
+  const [testInbox, setTestInbox] = useState('');
 
   async function load() {
     const res = await fetch('/api/campaigns');
@@ -23,7 +25,17 @@ export default function HomePage() {
     setCampaigns(body.campaigns || []);
   }
 
+  async function loadSettings() {
+    const res = await fetch('/api/settings');
+    if (!res.ok) return;
+    const body = await res.json();
+    if (!body.settings) return;
+    setTestMode(body.settings.testMode !== false);
+    setTestInbox(body.settings.testInboxEmail || body.settings.fromEmail || '');
+  }
+
   useEffect(() => {
+    loadSettings().catch(() => {});
     load().catch((err) => setError(err.message));
     const timer = setInterval(() => {
       load().catch(() => {});
@@ -70,6 +82,13 @@ export default function HomePage() {
           </p>
         </div>
       </div>
+
+      {testMode && (
+        <div className="banner-test" style={{ marginBottom: 16 }}>
+          Testitila on päällä: CSV tutkitaan ja Instagram analysoidaan, mutta sähköpostit menevät sinulle
+          {testInbox ? ` (${testInbox})` : ''}, ei yrityksille. Vaihda Asetuksista kun olet valmis.
+        </div>
+      )}
 
       <div className="grid" style={{ gap: 24 }}>
         <form className="panel grid" onSubmit={createCampaign}>
