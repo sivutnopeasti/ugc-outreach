@@ -69,7 +69,7 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     console.log('Viestejä ei lähetetty. Ilmainen lähetys: MAIL_PROVIDER=gmail ja --send.');
   }
   if (options.ai.enabled) console.log(`AI käytössä (${options.ai.model} @ ${options.ai.baseUrl}).`);
-  else console.log('AI pois päältä. Lisää AI_API_KEY vain jos haluat kahvaehdotuksia tai viestin hiontaa.');
+  else console.log('AI pois päältä. Lisää GROK_TOKEN (xAI) jos haluat kahvaehdotuksia tai viestin hiontaa.');
 }
 
 function numberEnv(value, fallback) {

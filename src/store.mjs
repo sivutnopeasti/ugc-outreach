@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { ensureLocalDirs, kvDel, kvGet, kvKeys, kvSet, usingRedis } from './kv.mjs';
+import { aiConfig } from './ai.mjs';
 import { publicMailAccounts } from './mail.mjs';
 
 export async function readSettings() {
@@ -36,7 +37,14 @@ export function publicSettings(settings) {
     smtpUser: settings.smtpUser || '',
     smtpPassSet: Boolean(settings.smtpPass),
     metaTokenSet: Boolean(settings.metaAccessToken),
-    aiKeySet: Boolean(settings.aiApiKey),
+    aiKeySet: Boolean(aiConfig(process.env).enabled || settings.aiApiKey),
+    aiFromEnv: Boolean(process.env.GROK_TOKEN || process.env.XAI_API_KEY),
+    aiProvider: aiConfig({
+      ...process.env,
+      AI_API_KEY: settings.aiApiKey || process.env.AI_API_KEY || '',
+      AI_BASE_URL: settings.aiBaseUrl || process.env.AI_BASE_URL || '',
+      AI_MODEL: settings.aiModel || process.env.AI_MODEL || '',
+    }).provider,
     aiBaseUrl: settings.aiBaseUrl || '',
     aiModel: settings.aiModel || '',
     minFollowers: settings.minFollowers || 3000,
@@ -133,9 +141,12 @@ export function settingsToEnv(settings) {
     SMTP_USER: settings.smtpUser || '',
     SMTP_PASS: settings.smtpPass || '',
     META_ACCESS_TOKEN: settings.metaAccessToken || '',
+    GROK_TOKEN: process.env.GROK_TOKEN || process.env.XAI_API_KEY || '',
+    XAI_API_KEY: process.env.XAI_API_KEY || '',
     AI_API_KEY: settings.aiApiKey || '',
     AI_BASE_URL: settings.aiBaseUrl || '',
-    AI_MODEL: settings.aiModel || 'gpt-4o-mini',
+    AI_MODEL: settings.aiModel || '',
+    GROK_MODEL: process.env.GROK_MODEL || '',
     MIN_FOLLOWERS: String(settings.minFollowers || 3000),
     MIN_MEDIAN_LIKES: String(settings.minMedianLikes || 30),
     MIN_MEDIAN_COMMENTS: String(settings.minMedianComments || 3),

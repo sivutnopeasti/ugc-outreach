@@ -3,7 +3,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { parseHandleList } from '../src/ai.mjs';
+import { aiConfig, parseHandleList } from '../src/ai.mjs';
 import { normalizeBusinessId, parseCsv, rowFromRecord } from '../src/csv.mjs';
 import { handleCandidatesFromName, profileMatchesCompany, scoreInstagramMatch } from '../src/handles.mjs';
 import { emailDomain, pickSenderAccount, resolveMailAccounts, resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
@@ -224,6 +224,14 @@ test('bio name alone is needs_review, bio+domain is confirmed', () => {
 
 test('AI handle parsing accepts a JSON array', () => {
   assert.deepEqual(parseHandleList('["esimerkki","esimerkkioy"]'), ['esimerkki', 'esimerkkioy']);
+});
+
+test('GROK_TOKEN enables xAI Grok defaults', () => {
+  const config = aiConfig({ GROK_TOKEN: 'test-token' });
+  assert.equal(config.enabled, true);
+  assert.equal(config.provider, 'grok');
+  assert.equal(config.baseUrl, 'https://api.x.ai/v1');
+  assert.equal(config.model, 'grok-3-mini');
 });
 
 test('name-based Instagram discovery verifies the public profile', async () => {

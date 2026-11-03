@@ -1,16 +1,28 @@
 /**
- * Valinnainen OpenAI-yhteensopiva rajapinta.
- * Ilman AI_API_KEY / OPENAI_API_KEY -avaimia ei tehdä yhtään kutsua.
- * Sopii myös ilmaisiin tai lähes ilmaisiin malleihin (esim. Groq, OpenRouter).
+ * Tekoäly Instagram-kahvaehdotuksiin ja viestin hiontaan.
+ * Ensisijainen: Vercel/env GROK_TOKEN → xAI Grok (https://api.x.ai/v1).
+ * Ilman avainta ei tehdä kutsuja.
  */
 
+const GROK_BASE_URL = 'https://api.x.ai/v1';
+const GROK_DEFAULT_MODEL = 'grok-3-mini';
+
 export function aiConfig(env = process.env) {
-  const apiKey = env.AI_API_KEY || env.OPENAI_API_KEY || '';
+  const grokToken = env.GROK_TOKEN || env.XAI_API_KEY || process.env.GROK_TOKEN || process.env.XAI_API_KEY || '';
+  const legacyKey = env.AI_API_KEY || env.OPENAI_API_KEY || '';
+  const usingGrok = Boolean(grokToken);
+  const apiKey = grokToken || legacyKey;
+
   return {
     enabled: Boolean(apiKey),
+    provider: usingGrok ? 'grok' : (apiKey ? 'custom' : 'none'),
     apiKey,
-    baseUrl: (env.AI_BASE_URL || env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''),
-    model: env.AI_MODEL || env.OPENAI_MODEL || 'gpt-4o-mini',
+    baseUrl: (
+      env.AI_BASE_URL
+      || env.OPENAI_BASE_URL
+      || (usingGrok ? GROK_BASE_URL : 'https://api.openai.com/v1')
+    ).replace(/\/$/, ''),
+    model: env.GROK_MODEL || env.AI_MODEL || env.OPENAI_MODEL || (usingGrok ? GROK_DEFAULT_MODEL : 'gpt-4o-mini'),
   };
 }
 

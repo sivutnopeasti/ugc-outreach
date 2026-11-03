@@ -45,7 +45,7 @@ const EMPTY = {
 export default function SettingsPage() {
   const router = useRouter();
   const [form, setForm] = useState(EMPTY);
-  const [meta, setMeta] = useState({ aiKeySet: false, metaTokenSet: false });
+  const [meta, setMeta] = useState({ aiKeySet: false, aiFromEnv: false, aiProvider: 'none', metaTokenSet: false });
   const [daily, setDaily] = useState({ total: 0, remainingToday: 6, maxEmailsPerDay: 6 });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -94,6 +94,8 @@ export default function SettingsPage() {
         if (body.daily) setDaily(body.daily);
         setMeta({
           aiKeySet: body.settings.aiKeySet,
+          aiFromEnv: body.settings.aiFromEnv,
+          aiProvider: body.settings.aiProvider || 'none',
           metaTokenSet: body.settings.metaTokenSet,
         });
       })
@@ -171,6 +173,8 @@ export default function SettingsPage() {
       }));
       setMeta({
         aiKeySet: body.settings.aiKeySet,
+        aiFromEnv: body.settings.aiFromEnv,
+        aiProvider: body.settings.aiProvider || 'none',
         metaTokenSet: body.settings.metaTokenSet,
       });
     } catch (err) {
@@ -302,12 +306,17 @@ export default function SettingsPage() {
           <label>Min. katselut (mediaani)<input type="number" value={form.minMedianViews} onChange={(e) => update('minMedianViews', e.target.value)} /></label>
         </div>
 
-        <h2 style={{ marginBottom: 0 }}>Valinnainen tekoäly</h2>
-        <p className="muted" style={{ marginTop: 0 }}>Voit jättää tyhjäksi. Tarvitaan vain, jos haluat AI-kahvaehdotuksia tai viestin hiontaa.</p>
-        <label>AI API -avain {meta.aiKeySet ? '(tallennettu)' : ''}<input type="password" value={form.aiApiKey} onChange={(e) => update('aiApiKey', e.target.value)} /></label>
-        <div className="grid two">
-          <label>AI Base URL<input value={form.aiBaseUrl} onChange={(e) => update('aiBaseUrl', e.target.value)} placeholder="https://api.openai.com/v1" /></label>
-          <label>Malli<input value={form.aiModel} onChange={(e) => update('aiModel', e.target.value)} /></label>
+        <h2 style={{ marginBottom: 0 }}>Tekoäly (Grok)</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Instagram-kahvaehdotukset käyttävät Vercel-secretiä <code>GROK_TOKEN</code> (xAI).
+          Avainta ei syötetä tähän lomakkeeseen.
+        </p>
+        <div className={meta.aiFromEnv || meta.aiKeySet ? 'success' : 'banner-test'}>
+          {meta.aiFromEnv || meta.aiProvider === 'grok'
+            ? 'GROK_TOKEN on käytössä — Grok ehdottaa Instagram-kahvoja automaattisesti.'
+            : meta.aiKeySet
+              ? 'Vanha AI-avain tallennettuna (varoitus: suositus on GROK_TOKEN Vercelissä).'
+              : 'GROK_TOKEN puuttuu vielä. Lisää se Verceliin: Settings → Environment Variables.'}
         </div>
 
         <h2 style={{ marginBottom: 0 }}>Turva</h2>

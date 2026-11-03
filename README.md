@@ -70,7 +70,7 @@ Asetukset-sivulla (deployauksen jälkeen):
 | Upstash Redis | 0 € (ilmaisraja) |
 | Gmail-lähetys | 0 € |
 | PRH + Instagram | 0 € |
-| Tekoäly | vain jos lisäät API-avaimen |
+| Tekoäly (Grok) | Vercel Secret `GROK_TOKEN` |
 
 ## Komennot
 
