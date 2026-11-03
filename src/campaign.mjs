@@ -32,6 +32,18 @@ export async function prepareAnalysis(runId) {
   run.results = [];
   run.message = 'Analysoidaan yrityksiä…';
   run.error = '';
+  run.activity = [];
+  run.pipeline = {
+    active: true,
+    stage: 'analyze',
+    phase: 'start',
+    label: 'Pipeline käynnistyy…',
+    companyName: '',
+    businessId: '',
+    step: 0,
+    total: rows.length,
+    updatedAt: new Date().toISOString(),
+  };
   await saveRun(run);
   return run;
 }
@@ -69,22 +81,83 @@ export async function analyzeNext(runId) {
   if (index >= rows.length) {
     run.status = 'ready';
     run.message = 'Analyysi valmis';
+    run.pipeline = idlePipeline(run.total, 'Analyysi valmis');
     await saveRun(run);
     return run;
   }
 
+  const current = rows[index];
   try {
-    const result = await evaluateCompany(rows[index], deps, options);
+    run.status = 'running';
+    run.pipeline = {
+      active: true,
+      stage: 'analyze',
+      phase: 'start',
+      label: 'Aloitetaan yrityksen analyysi…',
+      companyName: current.name || current.businessId || '',
+      businessId: current.businessId || '',
+      step: index + 1,
+      total: rows.length,
+      updatedAt: new Date().toISOString(),
+    };
+    run.message = `${current.name || current.businessId}: aloitetaan`;
+    await saveRun(run);
+
+    const result = await evaluateCompany(current, deps, {
+      ...options,
+      onProgress: async ({ phase, label, companyName }) => {
+        const latest = await getRun(runId);
+        latest.status = 'running';
+        latest.pipeline = {
+          active: true,
+          stage: 'analyze',
+          phase,
+          label,
+          companyName: companyName || current.name || current.businessId || '',
+          businessId: current.businessId || '',
+          step: index + 1,
+          total: rows.length,
+          updatedAt: new Date().toISOString(),
+        };
+        latest.message = `${latest.pipeline.companyName}: ${label}`;
+        await saveRun(latest);
+        Object.assign(run, latest);
+      },
+    });
     applyDeliveryState(result, settings);
     run.results = [...(run.results || []), result];
     run.cursor = index + 1;
     run.progress = index + 1;
     run.message = `${result.name || result.businessId}: ${result.decision}`;
+    run.activity = [
+      {
+        at: new Date().toISOString(),
+        companyName: result.name || result.businessId,
+        businessId: result.businessId,
+        decision: result.decision,
+        detail: result.instagram
+          ? `${result.decision} · ${result.instagram}`
+          : result.decision,
+      },
+      ...(run.activity || []),
+    ].slice(0, 40);
     if (run.cursor >= rows.length) {
       run.status = 'ready';
       run.message = 'Analyysi valmis';
+      run.pipeline = idlePipeline(run.total, 'Analyysi valmis');
     } else {
       run.status = 'running';
+      run.pipeline = {
+        active: true,
+        stage: 'analyze',
+        phase: 'next',
+        label: 'Siirrytään seuraavaan yritykseen…',
+        companyName: rows[run.cursor]?.name || rows[run.cursor]?.businessId || '',
+        businessId: rows[run.cursor]?.businessId || '',
+        step: run.cursor + 1,
+        total: rows.length,
+        updatedAt: new Date().toISOString(),
+      };
     }
     await saveRun(run);
     return run;
@@ -92,9 +165,34 @@ export async function analyzeNext(runId) {
     run.status = 'error';
     run.error = error.message || String(error);
     run.message = 'Analyysi epäonnistui';
+    run.pipeline = {
+      active: false,
+      stage: 'error',
+      phase: 'error',
+      label: error.message || 'Analyysi epäonnistui',
+      companyName: current.name || current.businessId || '',
+      businessId: current.businessId || '',
+      step: index + 1,
+      total: rows.length,
+      updatedAt: new Date().toISOString(),
+    };
     await saveRun(run);
     throw error;
   }
+}
+
+function idlePipeline(total = 0, label = 'Valmis') {
+  return {
+    active: false,
+    stage: 'idle',
+    phase: 'done',
+    label,
+    companyName: '',
+    businessId: '',
+    step: total,
+    total,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export async function confirmInstagram(runId, { businessId, action }) {
@@ -179,6 +277,19 @@ export async function sendSelected(runId, businessIds) {
   let skippedLimit = 0;
   const processedIds = [];
 
+  run.pipeline = {
+    active: true,
+    stage: 'send',
+    phase: 'start',
+    label: 'Aloitetaan sähköpostilähetys…',
+    companyName: '',
+    businessId: '',
+    step: 0,
+    total: businessIds.length,
+    updatedAt: new Date().toISOString(),
+  };
+  await saveRun(run);
+
   for (const row of run.results) {
     if (!wanted.has(row.businessId)) continue;
     processedIds.push(row.businessId);
@@ -227,6 +338,20 @@ export async function sendSelected(runId, businessIds) {
       fromEmail,
       companyEmail: row.email,
     });
+    run.pipeline = {
+      active: true,
+      stage: 'send',
+      phase: 'smtp',
+      label: `Lähetetään viestiä: ${row.name || row.businessId}`,
+      companyName: row.name || row.businessId || '',
+      businessId: row.businessId || '',
+      step: sent + 1,
+      total: businessIds.length,
+      updatedAt: new Date().toISOString(),
+    };
+    run.message = run.pipeline.label;
+    await saveRun(run);
+
     const mailer = mailers.get(account.id);
     await mailer.send({
       to: target.to,
@@ -251,12 +376,23 @@ export async function sendSelected(runId, businessIds) {
     row.sentFrom = fromEmail;
     row.sentAt = new Date().toISOString();
     sent += 1;
+    run.activity = [
+      {
+        at: new Date().toISOString(),
+        companyName: row.name || row.businessId,
+        businessId: row.businessId,
+        decision: 'sent',
+        detail: `lähetetty → ${target.to} (from ${fromEmail})`,
+      },
+      ...(run.activity || []),
+    ].slice(0, 40);
     await saveRun(run);
   }
 
   const modeNote = settings.testMode !== false ? ' (testitila → sinulle)' : '';
   const limitNote = skippedLimit > 0 ? `, ${skippedLimit} jäi jonoon päivärajan takia` : '';
   run.message = `Lähetetty ${sent} viestiä${modeNote}${limitNote} · tänään ${sentToday}/${maxEmailsPerDay}`;
+  run.pipeline = idlePipeline(run.total || businessIds.length, run.message);
   await saveRun(run);
   return {
     sent,

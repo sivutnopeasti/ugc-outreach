@@ -178,6 +178,18 @@ export async function createRun({ name, csvText }) {
     cursor: 0,
     message: 'Jonossa',
     results: [],
+    activity: [],
+    pipeline: {
+      active: false,
+      stage: 'idle',
+      phase: 'queued',
+      label: 'Jonossa — analyysi alkaa pian',
+      companyName: '',
+      businessId: '',
+      step: 0,
+      total: 0,
+      updatedAt: new Date().toISOString(),
+    },
     error: '',
   };
   await saveRun(run);
@@ -223,6 +235,8 @@ export async function listRuns() {
         status: run.status,
         progress: run.progress,
         total: run.total,
+        message: run.message || '',
+        pipeline: run.pipeline || null,
         weakCount: (run.results || []).filter((row) => row.decision === 'weak').length,
         sentCount: (run.results || []).filter((row) => row.sentAt || String(row.delivery || '').startsWith('lähetetty') || String(row.delivery || '').startsWith('testilähetys')).length,
         error: run.error || '',

@@ -15,8 +15,14 @@ export async function loadRows(csvPath) {
 export async function evaluateCompany(input, deps, options) {
   const result = blankResult(input);
   let officialName = input.name;
+  const progress = async (phase, label) => {
+    if (typeof options?.onProgress === 'function') {
+      await options.onProgress({ phase, label, companyName: officialName || input.name || input.businessId });
+    }
+  };
 
   if (input.businessId && deps.lookupCompany) {
+    await progress('prh', 'Haetaan yritystiedot YTJ:stä…');
     let company = null;
     try {
       company = await deps.lookupCompany(input.businessId);
@@ -54,6 +60,7 @@ export async function evaluateCompany(input, deps, options) {
   result.website = normalizeWebsite(result.website);
   let site = { ok: false, instagram: '', email: '', pageText: '' };
   if (result.website) {
+    await progress('website', `Luetaan verkkosivua ${result.website}…`);
     try {
       site = await deps.fetchSite(result.website);
     } catch (error) {
@@ -70,6 +77,7 @@ export async function evaluateCompany(input, deps, options) {
   let match = { score: 0, confidence: 'none', reasons: [] };
 
   if (instagramUsername) {
+    await progress('instagram', `Luetaan Instagram-tiliä @${instagramUsername}…`);
     ({ profile, instagramError } = await loadProfile(deps, instagramUsername, result));
     if (profile) {
       match = scoreInstagramMatch(profile, {
@@ -80,6 +88,9 @@ export async function evaluateCompany(input, deps, options) {
       });
     }
   } else {
+    await progress('instagram', options.ai?.enabled
+      ? 'Etsitään Instagramia (nimet + Grok-ehdotukset)…'
+      : 'Etsitään Instagramia nimen perusteella…');
     const discovered = await discoverInstagram({
       deps,
       options,
@@ -107,6 +118,7 @@ export async function evaluateCompany(input, deps, options) {
   result.instagramScore = match.score || 0;
   result.instagramMatchReasons = match.reasons || [];
 
+  await progress('score', 'Arvioidaan someaktiivisuutta…');
   let ads = { checked: false, active: null };
   try {
     ads = await deps.fetchAds(officialName);

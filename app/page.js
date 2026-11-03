@@ -90,6 +90,17 @@ export default function HomePage() {
         </div>
       )}
 
+      {campaigns.filter((item) => item.status === 'queued' || item.status === 'running' || item.pipeline?.active).map((item) => (
+        <Link key={`live-${item.id}`} href={`/campaigns/${item.id}`} className="pipeline-panel is-live" style={{ display: 'block', marginBottom: 16, textDecoration: 'none' }}>
+          <div className="pipeline-kicker">Pipeline käynnissä</div>
+          <h2 style={{ margin: '4px 0 8px' }}>{item.name}</h2>
+          <p className="muted" style={{ margin: 0 }}>
+            {item.pipeline?.label || item.message || 'Analysoidaan…'}
+            {item.total ? ` · ${item.progress}/${item.total}` : ''}
+          </p>
+        </Link>
+      ))}
+
       <div className="grid" style={{ gap: 24 }}>
         <form className="panel grid" onSubmit={createCampaign}>
           <h2 style={{ margin: 0 }}>Uusi kampanja</h2>

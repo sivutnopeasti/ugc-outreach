@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Shell from '../../components/Shell';
+import PipelinePanel from '../../components/PipelinePanel';
 
 export default function CampaignPage() {
   const { id } = useParams();
@@ -13,6 +14,7 @@ export default function CampaignPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [pipelineLive, setPipelineLive] = useState(false);
   const [settings, setSettings] = useState({
     testMode: true,
     testInboxEmail: '',
@@ -23,6 +25,7 @@ export default function CampaignPage() {
   const [daily, setDaily] = useState({ total: 0, remainingToday: 6, maxEmailsPerDay: 6 });
   const initialized = useRef(false);
   const stepping = useRef(false);
+  const pollRef = useRef(null);
 
   async function load() {
     const res = await fetch(`/api/campaigns/${id}`);
@@ -51,9 +54,26 @@ export default function CampaignPage() {
     if (body.daily) setDaily(body.daily);
   }
 
+  function startPolling() {
+    stopPolling();
+    pollRef.current = setInterval(() => {
+      load().catch(() => {});
+    }, 900);
+  }
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
   async function stepUntilDone() {
     if (stepping.current) return;
     stepping.current = true;
+    setPipelineLive(true);
+    setError('');
+    startPolling();
     try {
       let current = await load();
       while (current && (current.status === 'queued' || current.status === 'running')) {
@@ -73,7 +93,10 @@ export default function CampaignPage() {
     } catch (err) {
       setError(err.message);
     } finally {
+      stopPolling();
       stepping.current = false;
+      setPipelineLive(false);
+      await load().catch(() => {});
     }
   }
 
@@ -87,6 +110,7 @@ export default function CampaignPage() {
         return null;
       })
       .catch((err) => setError(err.message));
+    return () => stopPolling();
   }, [id]);
 
   const stats = useMemo(() => {
@@ -102,6 +126,11 @@ export default function CampaignPage() {
 
   const testInbox = settings.testInboxEmail || settings.fromEmail || 'lähettäjän osoitteeseen';
   const testMode = settings.testMode !== false;
+  const isRunning = pipelineLive
+    || sending
+    || campaign?.status === 'queued'
+    || campaign?.status === 'running'
+    || Boolean(campaign?.pipeline?.active);
 
   function toggle(idValue) {
     setSelected((current) => (
@@ -155,8 +184,10 @@ export default function CampaignPage() {
       : `Lähetetäänkö enintään ${willSend}/${selected.length} viestiä (päiväraja ${dayLimit}, jäljellä ${remainingToday})?`;
     if (!confirm(confirmText)) return;
     setSending(true);
+    setPipelineLive(true);
     setError('');
     setMessage('');
+    startPolling();
     try {
       const res = await fetch(`/api/campaigns/${id}/send`, {
         method: 'POST',
@@ -189,7 +220,10 @@ export default function CampaignPage() {
     } catch (err) {
       setError(err.message);
     } finally {
+      stopPolling();
       setSending(false);
+      setPipelineLive(false);
+      await load().catch(() => {});
     }
   }
 
@@ -205,15 +239,17 @@ export default function CampaignPage() {
           <p>
             Tila: <strong>{statusLabel(campaign.status)}</strong>
             {campaign.total ? ` · ${campaign.progress}/${campaign.total}` : ''}
-            {campaign.message ? ` · ${campaign.message}` : ''}
+            {isRunning ? ' · pipeline käynnissä' : ''}
           </p>
         </div>
         <div className="actions">
           {(campaign.status === 'queued' || campaign.status === 'running') && (
-            <button type="button" className="btn secondary" onClick={stepUntilDone}>Jatka analyysiä</button>
+            <button type="button" className="btn secondary" onClick={stepUntilDone} disabled={pipelineLive}>
+              {pipelineLive ? 'Analysoi…' : 'Jatka analyysiä'}
+            </button>
           )}
-          <button type="button" className="btn secondary" onClick={toggleAllWeak}>Valitse kaikki heikot</button>
-          <button type="button" className="btn accent" disabled={sending || selected.length === 0} onClick={send}>
+          <button type="button" className="btn secondary" onClick={toggleAllWeak} disabled={isRunning}>Valitse kaikki heikot</button>
+          <button type="button" className="btn accent" disabled={sending || selected.length === 0 || pipelineLive} onClick={send}>
             {sending
               ? 'Lähetetään…'
               : testMode
@@ -221,6 +257,10 @@ export default function CampaignPage() {
                 : `Lähetä valitut (${selected.length})`}
           </button>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <PipelinePanel campaign={campaign} sending={sending} />
       </div>
 
       {testMode && (
@@ -263,47 +303,52 @@ export default function CampaignPage() {
               </tr>
             </thead>
             <tbody>
-              {(campaign.results || []).map((row) => (
-                <tr key={row.businessId || row.name}>
-                  <td>
-                    {row.decision === 'weak' && row.email && !alreadySent(row) ? (
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(row.businessId)}
-                        onChange={() => toggle(row.businessId)}
-                      />
-                    ) : null}
-                  </td>
-                  <td>
-                    <strong>{row.name}</strong>
-                    <div className="muted">{row.businessId}</div>
-                    <div className="muted">{(row.reasons || []).join(' · ')}</div>
-                  </td>
-                  <td>
-                    {row.instagram ? <a href={row.instagram} target="_blank" rel="noreferrer">{row.instagram.replace('https://www.instagram.com/', '@').replace(/\/$/, '')}</a> : '–'}
-                    <div className="muted">
-                      {row.followers !== '' && row.followers != null ? `${row.followers} seuraajaa` : ''}
-                      {row.instagramScore ? ` · osuma ${row.instagramScore} p` : ''}
-                    </div>
-                  </td>
-                  <td><span className={`badge ${row.decision}`}>{decisionLabel(row.decision)}</span></td>
-                  <td>{row.email || '–'}</td>
-                  <td>{row.delivery}</td>
-                  <td>
-                    <div className="actions" style={{ marginTop: 0 }}>
-                      {row.decision === 'needs_review' ? (
-                        <>
-                          <button type="button" className="btn accent" onClick={() => confirmIg(row.businessId, 'confirm')}>Vahvista</button>
-                          <button type="button" className="btn secondary" onClick={() => confirmIg(row.businessId, 'reject')}>Hylkää</button>
-                        </>
+              {(campaign.results || []).map((row) => {
+                const isCurrent = campaign.pipeline?.businessId
+                  && row.businessId === campaign.pipeline.businessId
+                  && isRunning;
+                return (
+                  <tr key={row.businessId || row.name} className={isCurrent ? 'row-live' : ''}>
+                    <td>
+                      {row.decision === 'weak' && row.email && !alreadySent(row) ? (
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(row.businessId)}
+                          onChange={() => toggle(row.businessId)}
+                        />
                       ) : null}
-                      {row.previewText ? (
-                        <button type="button" className="btn secondary" onClick={() => setPreview(row)}>Esikatselu</button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td>
+                      <strong>{row.name}</strong>
+                      <div className="muted">{row.businessId}</div>
+                      <div className="muted">{(row.reasons || []).join(' · ')}</div>
+                    </td>
+                    <td>
+                      {row.instagram ? <a href={row.instagram} target="_blank" rel="noreferrer">{row.instagram.replace('https://www.instagram.com/', '@').replace(/\/$/, '')}</a> : '–'}
+                      <div className="muted">
+                        {row.followers !== '' && row.followers != null ? `${row.followers} seuraajaa` : ''}
+                        {row.instagramScore ? ` · osuma ${row.instagramScore} p` : ''}
+                      </div>
+                    </td>
+                    <td><span className={`badge ${row.decision}`}>{decisionLabel(row.decision)}</span></td>
+                    <td>{row.email || '–'}</td>
+                    <td>{row.delivery}</td>
+                    <td>
+                      <div className="actions" style={{ marginTop: 0 }}>
+                        {row.decision === 'needs_review' ? (
+                          <>
+                            <button type="button" className="btn accent" onClick={() => confirmIg(row.businessId, 'confirm')}>Vahvista</button>
+                            <button type="button" className="btn secondary" onClick={() => confirmIg(row.businessId, 'reject')}>Hylkää</button>
+                          </>
+                        ) : null}
+                        {row.previewText ? (
+                          <button type="button" className="btn secondary" onClick={() => setPreview(row)}>Esikatselu</button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
