@@ -193,6 +193,7 @@ th {
 }
 .badge.strong { background: #dcfce7; color: var(--strong); }
 .badge.weak { background: #ffedd5; color: var(--weak); }
+.badge.needs_review { background: #fef3c7; color: #92400e; }
 .badge.unknown, .badge.skip { background: #e7e5e4; color: var(--unknown); }
 .badge.ready { background: #ccfbf1; color: #0f766e; }
 .badge.error { background: #fee2e2; color: var(--danger); }

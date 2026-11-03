@@ -17,7 +17,9 @@ export function aiConfig(env = process.env) {
 export async function suggestInstagramHandles({ companyName, website, pageText }, config, fetchImpl = fetch) {
   if (!config.enabled) return [];
   const prompt = [
-    'Ehdota enintään 5 todennäköistä Instagram-käyttäjänimeä suomalaiselle yritykselle.',
+    'Ehdota enintään 8 todennäköistä Instagram-käyttäjänimeä suomalaiselle yritykselle.',
+    'Käytä yritysnimeä, brändiä, lyhenteitä ja suomenkielisiä muunnelmia (ilman @-merkkiä).',
+    'Älä päätä mikä on oikea tili — vain ehdota kahvoja tarkistettavaksi.',
     'Palauta vain JSON-taulukko merkkijonoina, ei markdownia.',
     `Yritys: ${companyName}`,
     website ? `Verkkosivu: ${website}` : '',

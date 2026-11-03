@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { parseHandleList } from '../src/ai.mjs';
 import { normalizeBusinessId, parseCsv, rowFromRecord } from '../src/csv.mjs';
-import { handleCandidatesFromName, profileMatchesCompany } from '../src/handles.mjs';
+import { handleCandidatesFromName, profileMatchesCompany, scoreInstagramMatch } from '../src/handles.mjs';
 import { resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
 import { assessPresence } from '../src/score.mjs';
 import { findInstagram, pickEmail } from '../src/sources.mjs';
@@ -193,6 +193,34 @@ test('handle candidates stay free and require a company match', () => {
   );
 });
 
+test('bio name alone is needs_review, bio+domain is confirmed', () => {
+  const review = scoreInstagramMatch(
+    {
+      username: 'joku',
+      fullName: '',
+      biography: 'Esimerkki Oy — paikallinen palvelu',
+      externalUrl: '',
+      bioLinks: [],
+    },
+    { name: 'Esimerkki Oy', website: 'https://esimerkki.fi' },
+  );
+  assert.equal(review.confidence, 'needs_review');
+  assert.ok(review.score >= 3);
+
+  const confirmed = scoreInstagramMatch(
+    {
+      username: 'esimerkki',
+      fullName: 'Esimerkki',
+      biography: 'Virallinen tili Esimerkki Oy',
+      externalUrl: 'https://esimerkki.fi',
+      bioLinks: [],
+    },
+    { name: 'Esimerkki Oy', website: 'https://www.esimerkki.fi' },
+  );
+  assert.equal(confirmed.confidence, 'confirmed');
+  assert.ok(confirmed.score >= 5);
+});
+
 test('AI handle parsing accepts a JSON array', () => {
   assert.deepEqual(parseHandleList('["esimerkki","esimerkkioy"]'), ['esimerkki', 'esimerkkioy']);
 });
@@ -208,8 +236,10 @@ test('name-based Instagram discovery verifies the public profile', async () => {
         return {
           username: 'esimerkki',
           fullName: 'Esimerkki Oy',
+          biography: 'Esimerkki Oy virallinen',
           followers: 40,
           externalUrl: 'https://esimerkki.fi',
+          bioLinks: [],
           posts: [{ likes: 1, comments: 0, views: null, isVideo: false }],
           businessEmail: '',
         };
@@ -219,8 +249,37 @@ test('name-based Instagram discovery verifies the public profile', async () => {
     { thresholds: { minFollowers: 3000, minMedianLikes: 30, minMedianComments: 3, minMedianViews: 1000 }, ai: { enabled: false } },
   );
   assert.equal(result.decision, 'weak');
+  assert.equal(result.instagramConfidence, 'confirmed');
   assert.equal(result.instagram, 'https://www.instagram.com/esimerkki/');
   assert.equal(result.followers, 40);
+});
+
+test('uncertain Instagram match waits for manual review', async () => {
+  const result = await evaluateCompany(
+    { name: 'Esimerkki Oy', businessId: '1234567-8', website: '', email: '', instagram: '' },
+    {
+      lookupCompany: async () => ({ name: 'Esimerkki Oy', website: 'https://esimerkki.fi', naturalPerson: false, dissolved: false }),
+      fetchSite: async () => ({ ok: true, instagram: '', email: 'info@esimerkki.fi', pageText: 'Tervetuloa' }),
+      fetchInstagram: async (username) => {
+        if (username !== 'esimerkki') throw new Error('ei');
+        return {
+          username: 'esimerkki',
+          fullName: '',
+          biography: 'Terveisiä Esimerkki Oy:ltä',
+          followers: 40,
+          externalUrl: '',
+          bioLinks: [],
+          posts: [{ likes: 1, comments: 0, views: null, isVideo: false }],
+          businessEmail: '',
+        };
+      },
+      fetchAds: async () => ({ checked: false, active: null }),
+    },
+    { thresholds: { minFollowers: 3000, minMedianLikes: 30, minMedianComments: 3, minMedianViews: 1000 }, ai: { enabled: false } },
+  );
+  assert.equal(result.decision, 'needs_review');
+  assert.equal(result.instagramConfidence, 'needs_review');
+  assert.equal(result.pendingDecision, 'weak');
 });
 
 test('test mode redirects mail to the operator inbox', () => {

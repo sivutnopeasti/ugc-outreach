@@ -85,6 +85,7 @@ export default function CampaignPage() {
     const rows = campaign?.results || [];
     return {
       weak: rows.filter((row) => row.decision === 'weak').length,
+      review: rows.filter((row) => row.decision === 'needs_review').length,
       strong: rows.filter((row) => row.decision === 'strong').length,
       unknown: rows.filter((row) => row.decision === 'unknown' || row.decision === 'skip').length,
       sent: rows.filter((row) => alreadySent(row)).length,
@@ -108,6 +109,33 @@ export default function CampaignPage() {
       .filter((row) => row.decision === 'weak' && row.email && !alreadySent(row))
       .map((row) => row.businessId);
     setSelected(ids);
+  }
+
+  async function confirmIg(businessId, action) {
+    setError('');
+    setMessage('');
+    try {
+      const res = await fetch(`/api/campaigns/${id}/confirm`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ businessId, action }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || 'Vahvistus epäonnistui');
+      setCampaign(body.campaign);
+      if (action === 'confirm') {
+        const row = (body.campaign.results || []).find((item) => item.businessId === businessId);
+        if (row?.decision === 'weak' && row.email && !alreadySent(row)) {
+          setSelected((current) => (current.includes(businessId) ? current : [...current, businessId]));
+        }
+        setMessage('Instagram vahvistettu.');
+      } else {
+        setSelected((current) => current.filter((item) => item !== businessId));
+        setMessage('Instagram-ehdokas hylätty.');
+      }
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   async function send() {
@@ -183,10 +211,16 @@ export default function CampaignPage() {
         </div>
       )}
 
+      {stats.review > 0 && (
+        <div className="banner-test" style={{ marginBottom: 16 }}>
+          {stats.review} Instagram-ehdokasta odottaa sinun vahvistustasi. Niitä ei lähetetä ennen kuin hyväksyt tai hylkäät tilin.
+        </div>
+      )}
+
       <div className="grid three" style={{ marginBottom: 24 }}>
         <div className="stat"><span className="muted">Heikko some</span><strong>{stats.weak}</strong></div>
-        <div className="stat"><span className="muted">Vahva / ohitettu</span><strong>{stats.strong + stats.unknown}</strong></div>
-        <div className="stat"><span className="muted">Lähetetty</span><strong>{stats.sent}</strong></div>
+        <div className="stat"><span className="muted">Vahvista Instagram</span><strong>{stats.review}</strong></div>
+        <div className="stat"><span className="muted">Vahva / ohitettu / lähetetty</span><strong>{stats.strong + stats.unknown + stats.sent}</strong></div>
       </div>
 
       {error && <div className="error" style={{ marginBottom: 16 }}>{error}</div>}
@@ -228,15 +262,24 @@ export default function CampaignPage() {
                     {row.instagram ? <a href={row.instagram} target="_blank" rel="noreferrer">{row.instagram.replace('https://www.instagram.com/', '@').replace(/\/$/, '')}</a> : '–'}
                     <div className="muted">
                       {row.followers !== '' && row.followers != null ? `${row.followers} seuraajaa` : ''}
+                      {row.instagramScore ? ` · osuma ${row.instagramScore} p` : ''}
                     </div>
                   </td>
-                  <td><span className={`badge ${row.decision}`}>{row.decision}</span></td>
+                  <td><span className={`badge ${row.decision}`}>{decisionLabel(row.decision)}</span></td>
                   <td>{row.email || '–'}</td>
                   <td>{row.delivery}</td>
                   <td>
-                    {row.previewText ? (
-                      <button type="button" className="btn secondary" onClick={() => setPreview(row)}>Esikatselu</button>
-                    ) : null}
+                    <div className="actions" style={{ marginTop: 0 }}>
+                      {row.decision === 'needs_review' ? (
+                        <>
+                          <button type="button" className="btn accent" onClick={() => confirmIg(row.businessId, 'confirm')}>Vahvista</button>
+                          <button type="button" className="btn secondary" onClick={() => confirmIg(row.businessId, 'reject')}>Hylkää</button>
+                        </>
+                      ) : null}
+                      {row.previewText ? (
+                        <button type="button" className="btn secondary" onClick={() => setPreview(row)}>Esikatselu</button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -268,6 +311,16 @@ function statusLabel(status) {
     ready: 'Valmis',
     error: 'Virhe',
   })[status] || status;
+}
+
+function decisionLabel(decision) {
+  return ({
+    weak: 'heikko',
+    strong: 'vahva',
+    unknown: 'ei tietoa',
+    skip: 'ohitettu',
+    needs_review: 'vahvista IG',
+  })[decision] || decision;
 }
 
 function alreadySent(row) {

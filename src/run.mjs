@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile, appendFile } from 'node:fs/promises';
 import path from 'node:path';
 import { aiConfig, polishOutreachMessage, suggestInstagramHandles } from './ai.mjs';
 import { parseCsv, rowFromRecord, toCsv } from './csv.mjs';
-import { findAtHandles, handleCandidatesFromName, profileMatchesCompany } from './handles.mjs';
+import { findAtHandles, handleCandidatesFromName, scoreInstagramMatch } from './handles.mjs';
 import { assessPresence, usernameFromInstagram } from './score.mjs';
 import { fetchAds, fetchInstagram, fetchSite, lookupCompany, normalizeWebsite, pickEmail } from './sources.mjs';
 import { buildMessage } from './template.mjs';
@@ -60,25 +60,37 @@ export async function evaluateCompany(input, deps, options) {
       site = { ok: false, instagram: '', email: '', pageText: '', error: error.message };
     }
   }
+  const foundOnWebsite = Boolean(!result.instagram && site.instagram);
   if (!result.instagram && site.instagram) result.instagram = site.instagram;
   if (!result.email && site.email) result.email = site.email;
 
   let profile = null;
   let instagramError = '';
   let instagramUsername = usernameFromInstagram(result.instagram);
+  let match = { score: 0, confidence: 'none', reasons: [] };
 
   if (instagramUsername) {
     ({ profile, instagramError } = await loadProfile(deps, instagramUsername, result));
+    if (profile) {
+      match = scoreInstagramMatch(profile, {
+        name: officialName,
+        website: result.website,
+        companyEmail: result.email,
+        foundOnWebsite: foundOnWebsite || Boolean(input.instagram),
+      });
+    }
   } else {
     const discovered = await discoverInstagram({
       deps,
       options,
       companyName: officialName,
       website: result.website,
+      companyEmail: result.email,
       pageText: site.pageText || '',
     });
     if (discovered.profile) {
       profile = discovered.profile;
+      match = discovered.match;
       instagramUsername = discovered.username;
       result.instagram = `https://www.instagram.com/${discovered.username}/`;
       if (!result.email && profile.businessEmail) {
@@ -88,6 +100,12 @@ export async function evaluateCompany(input, deps, options) {
       instagramError = discovered.error;
     }
   }
+
+  result.instagramConfidence = match.confidence === 'confirmed' || match.confidence === 'needs_review'
+    ? match.confidence
+    : (profile ? 'reject' : 'none');
+  result.instagramScore = match.score || 0;
+  result.instagramMatchReasons = match.reasons || [];
 
   let ads = { checked: false, active: null };
   try {
@@ -102,16 +120,48 @@ export async function evaluateCompany(input, deps, options) {
     websiteFetchFailed: Boolean(result.website) && site.ok === false && !profile,
     instagramUsername,
     instagramError,
-    profile,
+    profile: match.confidence === 'reject' ? null : profile,
     ads,
   }, options.thresholds);
 
-  result.decision = assessment.decision;
-  result.reasons = assessment.reasons;
   result.followers = assessment.followers ?? '';
   result.medianLikes = assessment.medianLikes ?? '';
   result.medianComments = assessment.medianComments ?? '';
   result.medianViews = assessment.medianViews ?? '';
+
+  if (match.confidence === 'needs_review') {
+    result.decision = 'needs_review';
+    result.pendingDecision = assessment.decision;
+    result.pendingReasons = assessment.reasons;
+    result.reasons = [
+      ...(match.reasons || []),
+      `Alustava somearvio: ${assessment.decision}`,
+      ...(assessment.reasons || []),
+    ];
+    return finish(result, options);
+  }
+
+  if (match.confidence === 'reject' && profile) {
+    result.instagram = '';
+    result.instagramUsername = '';
+    result.decision = assessment.decision === 'strong' ? 'unknown' : assessment.decision;
+    result.reasons = [
+      'Löytynyt Instagram-ehdokas hylättiin (liian heikko osuma)',
+      ...(match.reasons || []),
+      ...(assessment.decision === 'unknown' ? assessment.reasons : ['Somea ei voitu varmistaa yritykseen']),
+    ];
+    result.followers = '';
+    result.medianLikes = '';
+    result.medianComments = '';
+    result.medianViews = '';
+    return finish(result, options);
+  }
+
+  result.decision = assessment.decision;
+  result.reasons = [
+    ...(match.confidence === 'confirmed' ? (match.reasons || []).slice(0, 2) : []),
+    ...assessment.reasons,
+  ];
   return finish(result, options);
 }
 
@@ -173,35 +223,61 @@ async function loadProfile(deps, username, result) {
   }
 }
 
-async function discoverInstagram({ deps, options, companyName, website, pageText }) {
+async function discoverInstagram({ deps, options, companyName, website, companyEmail, pageText }) {
   const candidates = [
     ...findAtHandles(pageText),
     ...handleCandidatesFromName(companyName),
   ];
+  let aiError = '';
   if (options.ai?.enabled && deps.suggestHandles) {
     try {
       const suggested = await deps.suggestHandles({ companyName, website, pageText });
       candidates.push(...suggested);
     } catch (error) {
-      return { profile: null, username: '', error: `AI-kahvaehdotus epäonnistui: ${error.message}` };
+      aiError = `AI-kahvaehdotus epäonnistui: ${error.message}`;
     }
   }
 
   const tried = new Set();
+  let bestReview = null;
+
   for (const raw of candidates) {
     const username = usernameFromInstagram(raw);
     if (!username || tried.has(username)) continue;
     tried.add(username);
     try {
       const profile = await deps.fetchInstagram(username);
-      if (profileMatchesCompany(profile, { name: companyName, website })) {
-        return { profile, username: profile.username || username, error: '' };
+      const match = scoreInstagramMatch(profile, {
+        name: companyName,
+        website,
+        companyEmail,
+        foundOnWebsite: false,
+      });
+      if (match.confidence === 'confirmed') {
+        return {
+          profile,
+          username: profile.username || username,
+          match,
+          error: aiError,
+        };
+      }
+      if (match.confidence === 'needs_review') {
+        if (!bestReview || match.score > bestReview.match.score) {
+          bestReview = {
+            profile,
+            username: profile.username || username,
+            match,
+            error: aiError,
+          };
+        }
       }
     } catch {
       /* try next candidate */
     }
   }
-  return { profile: null, username: '', error: '' };
+
+  if (bestReview) return bestReview;
+  return { profile: null, username: '', match: { score: 0, confidence: 'none', reasons: [] }, error: aiError };
 }
 
 async function maybeSend({ result, message, options, suppression, sent, deliver }) {
@@ -246,6 +322,11 @@ function blankResult(input) {
     decision: 'unknown',
     reasons: [],
     delivery: '',
+    instagramConfidence: 'none',
+    instagramScore: 0,
+    instagramMatchReasons: [],
+    pendingDecision: '',
+    pendingReasons: [],
   };
 }
 

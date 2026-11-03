@@ -60,20 +60,7 @@ export async function analyzeNext(runId) {
 
   try {
     const result = await evaluateCompany(rows[index], deps, options);
-    result.delivery = result.decision === 'weak' ? (result.email ? 'valmis lähetettäväksi' : 'ei sähköpostia') : 'ei lähetetä';
-    if (result.decision === 'weak') {
-      const message = buildMessage({
-        companyName: result.name,
-        businessId: result.businessId,
-        instagramUrl: result.instagram,
-        reasons: result.reasons,
-        fromName: settings.fromName,
-        fromEmail: settings.fromEmail,
-        postalAddress: settings.postalAddress,
-      });
-      result.previewSubject = message.subject;
-      result.previewText = message.text;
-    }
+    applyDeliveryState(result, settings);
     run.results = [...(run.results || []), result];
     run.cursor = index + 1;
     run.progress = index + 1;
@@ -93,6 +80,50 @@ export async function analyzeNext(runId) {
     await saveRun(run);
     throw error;
   }
+}
+
+export async function confirmInstagram(runId, { businessId, action }) {
+  const settings = await readSettings();
+  const run = await getRun(runId);
+  const row = (run.results || []).find((item) => item.businessId === businessId);
+  if (!row) {
+    throw Object.assign(new Error('Yritystä ei löytynyt kampanjasta'), { status: 404 });
+  }
+  if (row.decision !== 'needs_review' && row.instagramConfidence !== 'needs_review') {
+    throw Object.assign(new Error('Tällä rivillä ei ole vahvistettavaa Instagram-ehdokasta'), { status: 400 });
+  }
+
+  if (action === 'reject') {
+    row.instagram = '';
+    row.instagramConfidence = 'rejected';
+    row.instagramScore = 0;
+    row.decision = 'unknown';
+    row.reasons = ['Instagram-ehdokas hylättiin manuaalisesti'];
+    row.followers = '';
+    row.medianLikes = '';
+    row.medianComments = '';
+    row.medianViews = '';
+    row.pendingDecision = '';
+    row.pendingReasons = [];
+    row.previewSubject = '';
+    row.previewText = '';
+    row.delivery = 'ei lähetetä';
+  } else if (action === 'confirm') {
+    row.instagramConfidence = 'confirmed';
+    row.decision = row.pendingDecision || 'weak';
+    row.reasons = [
+      'Instagram vahvistettu manuaalisesti',
+      ...(row.pendingReasons || []),
+    ];
+    row.pendingDecision = '';
+    row.pendingReasons = [];
+    applyDeliveryState(row, settings);
+  } else {
+    throw Object.assign(new Error('action täytyy olla confirm tai reject'), { status: 400 });
+  }
+
+  await saveRun(run);
+  return run;
 }
 
 export async function sendSelected(runId, businessIds) {
@@ -120,6 +151,10 @@ export async function sendSelected(runId, businessIds) {
 
   for (const row of run.results) {
     if (!wanted.has(row.businessId)) continue;
+    if (row.decision === 'needs_review' || row.instagramConfidence === 'needs_review') {
+      row.delivery = 'odottaa Instagram-vahvistusta';
+      continue;
+    }
     if (row.decision !== 'weak') continue;
     if (!row.email) {
       row.delivery = 'ei sähköpostia';
@@ -169,6 +204,33 @@ export async function sendSelected(runId, businessIds) {
   run.message = `Lähetetty ${sent} viestiä${modeNote}`;
   await saveRun(run);
   return { sent, run, testMode: settings.testMode !== false };
+}
+
+function applyDeliveryState(result, settings) {
+  if (result.decision === 'needs_review' || result.instagramConfidence === 'needs_review') {
+    result.delivery = 'odottaa Instagram-vahvistusta';
+    result.previewSubject = '';
+    result.previewText = '';
+    return result;
+  }
+  result.delivery = result.decision === 'weak' ? (result.email ? 'valmis lähetettäväksi' : 'ei sähköpostia') : 'ei lähetetä';
+  if (result.decision === 'weak') {
+    const message = buildMessage({
+      companyName: result.name,
+      businessId: result.businessId,
+      instagramUrl: result.instagram,
+      reasons: result.reasons,
+      fromName: settings.fromName,
+      fromEmail: settings.fromEmail,
+      postalAddress: settings.postalAddress,
+    });
+    result.previewSubject = message.subject;
+    result.previewText = message.text;
+  } else {
+    result.previewSubject = '';
+    result.previewText = '';
+  }
+  return result;
 }
 
 // Keep local CLI helper available if needed.

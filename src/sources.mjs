@@ -106,13 +106,26 @@ export async function fetchInstagram(username) {
       views: hidden ? null : numberOrNull(node.video_view_count),
     };
   });
+  const bioLinks = Array.isArray(user.bio_links)
+    ? user.bio_links
+      .map((link) => ({
+        url: typeof link?.url === 'string' ? link.url : '',
+        title: typeof link?.title === 'string' ? link.title : '',
+      }))
+      .filter((link) => link.url)
+    : [];
+
   return {
     username: user.username || handle,
     fullName: user.full_name || '',
+    biography: typeof user.biography === 'string' ? user.biography : '',
     isPrivate: user.is_private === true,
+    isVerified: user.is_verified === true,
+    isBusinessAccount: user.is_business_account === true || user.is_professional_account === true,
     followers: numberOrNull(user.edge_followed_by?.count),
     businessEmail: typeof user.business_email === 'string' ? user.business_email.toLowerCase() : '',
     externalUrl: typeof user.external_url === 'string' ? user.external_url : '',
+    bioLinks,
     posts,
   };
 }
