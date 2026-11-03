@@ -1,0 +1,13 @@
+{
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "functions": {
+    "app/api/campaigns/[id]/step/route.js": {
+      "maxDuration": 60
+    },
+    "app/api/campaigns/[id]/send/route.js": {
+      "maxDuration": 60
+    }
+  }
+}
