@@ -225,6 +225,16 @@ th {
   padding: 16px;
   background: #fff;
 }
+input.range {
+  width: 100%;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.range-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+}
 .check-row {
   display: flex;
   align-items: center;

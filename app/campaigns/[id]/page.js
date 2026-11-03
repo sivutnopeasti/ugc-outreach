@@ -17,9 +17,10 @@ export default function CampaignPage() {
     testMode: true,
     testInboxEmail: '',
     fromEmail: '',
-    maxSendPerBatch: 6,
+    maxEmailsPerDay: 6,
     maxEmailsPerDomain: 2,
   });
+  const [daily, setDaily] = useState({ total: 0, remainingToday: 6, maxEmailsPerDay: 6 });
   const initialized = useRef(false);
   const stepping = useRef(false);
 
@@ -47,6 +48,7 @@ export default function CampaignPage() {
     if (!res.ok) return;
     const body = await res.json();
     if (body.settings) setSettings(body.settings);
+    if (body.daily) setDaily(body.daily);
   }
 
   async function stepUntilDone() {
@@ -145,11 +147,12 @@ export default function CampaignPage() {
   }
 
   async function send() {
-    const batchLimit = Number(settings.maxSendPerBatch) || 6;
-    const willSend = Math.min(selected.length, batchLimit);
+    const dayLimit = Number(settings.maxEmailsPerDay || daily.maxEmailsPerDay) || 6;
+    const remainingToday = daily.remainingToday ?? dayLimit;
+    const willSend = Math.min(selected.length, Math.max(0, remainingToday));
     const confirmText = testMode
-      ? `TESTITILA: lähetetään enintään ${willSend}/${selected.length} viestiä osoitteeseen ${testInbox} (max ${batchLimit}/lähetys). Jatketaanko?`
-      : `Lähetetäänkö enintään ${willSend}/${selected.length} viestiä (max ${batchLimit}/lähetys)?`;
+      ? `TESTITILA: lähetetään enintään ${willSend}/${selected.length} viestiä osoitteeseen ${testInbox} (päiväraja ${dayLimit}, jäljellä ${remainingToday}). Jatketaanko?`
+      : `Lähetetäänkö enintään ${willSend}/${selected.length} viestiä (päiväraja ${dayLimit}, jäljellä ${remainingToday})?`;
     if (!confirm(confirmText)) return;
     setSending(true);
     setError('');
@@ -163,12 +166,21 @@ export default function CampaignPage() {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Lähetys epäonnistui');
       setCampaign(body.run);
+      if (typeof body.sentToday === 'number') {
+        setDaily((current) => ({
+          ...current,
+          total: body.sentToday,
+          remainingToday: body.remainingToday,
+          maxEmailsPerDay: body.maxEmailsPerDay || current.maxEmailsPerDay,
+        }));
+      }
       const totalSent = body.sent || 0;
       const skipped = body.skippedLimit || 0;
       setMessage(
         `${testMode ? 'Testilähetys' : 'Lähetys'}: ${totalSent} viestiä`
         + (testMode ? ` → ${testInbox}` : '')
-        + (skipped ? ` · ${skipped} jäi jonoon rajojen takia` : ''),
+        + ` · tänään ${body.sentToday ?? '?'}/${body.maxEmailsPerDay || dayLimit}`
+        + (skipped ? ` · ${skipped} jäi jonoon päivärajan takia` : ''),
       );
       setSelected((current) => current.filter((item) => {
         const row = (body.run?.results || []).find((entry) => entry.businessId === item);
@@ -214,7 +226,9 @@ export default function CampaignPage() {
       {testMode && (
         <div className="banner-test" style={{ marginBottom: 16 }}>
           Testitila päällä — Instagram-analyysi toimii, mutta sähköpostit menevät osoitteeseen <strong>{testInbox}</strong>, ei yrityksille.
-          Max {settings.maxSendPerBatch || 6} viestiä / lähetys, max {settings.maxEmailsPerDomain || 2} / domain.
+          Max {settings.maxEmailsPerDay || 6} viestiä / päivä
+          ({daily.total || 0} käytetty, {daily.remainingToday ?? settings.maxEmailsPerDay ?? 6} jäljellä),
+          max {settings.maxEmailsPerDomain || 2} / domain / päivä.
         </div>
       )}
 

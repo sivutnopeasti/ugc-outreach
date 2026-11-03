@@ -10,7 +10,16 @@ import {
 import { defaultDeps, evaluateCompany } from './run.mjs';
 import { parseCsv, rowFromRecord } from './csv.mjs';
 import { buildMessage } from './template.mjs';
-import { getRun, getRunCsv, saveRun, settingsToEnv, readSettings, readSuppression } from './store.mjs';
+import {
+  getRun,
+  getRunCsv,
+  saveRun,
+  settingsToEnv,
+  readSettings,
+  readSuppression,
+  readDailySendStats,
+  recordDailySend,
+} from './store.mjs';
 
 export async function prepareAnalysis(runId) {
   const run = await getRun(runId);
@@ -146,7 +155,7 @@ export async function sendSelected(runId, businessIds) {
     throw Object.assign(new Error('Lisää SMTP-salasana vähintään yhdelle lähettäjätilille'), { status: 400 });
   }
 
-  const maxSendPerBatch = Math.max(1, Number(settings.maxSendPerBatch) || 6);
+  const maxEmailsPerDay = Math.max(1, Number(settings.maxEmailsPerDay || settings.maxSendPerBatch) || 6);
   const maxEmailsPerDomain = Math.max(1, Number(settings.maxEmailsPerDomain) || 2);
   const mailers = new Map();
   for (const account of accounts) {
@@ -163,7 +172,9 @@ export async function sendSelected(runId, businessIds) {
 
   let run = await getRun(runId);
   const wanted = new Set(businessIds);
-  const usageByDomain = {};
+  const daily = await readDailySendStats();
+  const usageByDomain = { ...(daily.byDomain || {}) };
+  let sentToday = Number(daily.total || 0);
   let sent = 0;
   let skippedLimit = 0;
   const processedIds = [];
@@ -187,15 +198,15 @@ export async function sendSelected(runId, businessIds) {
     }
     if (row.sentAt || String(row.delivery || '').startsWith('lähetetty') || String(row.delivery || '').startsWith('testilähetys')) continue;
 
-    if (sent >= maxSendPerBatch) {
-      row.delivery = `jonossa (max ${maxSendPerBatch}/lähetys)`;
+    if (sentToday >= maxEmailsPerDay) {
+      row.delivery = `jonossa (päiväraja ${maxEmailsPerDay}/pv)`;
       skippedLimit += 1;
       continue;
     }
 
     const account = pickSenderAccount(accounts, usageByDomain, maxEmailsPerDomain);
     if (!account) {
-      row.delivery = `jonossa (max ${maxEmailsPerDomain}/domain)`;
+      row.delivery = `jonossa (max ${maxEmailsPerDomain}/domain/pv)`;
       skippedLimit += 1;
       continue;
     }
@@ -232,6 +243,8 @@ export async function sendSelected(runId, businessIds) {
 
     const domain = emailDomain(fromEmail);
     usageByDomain[domain] = (usageByDomain[domain] || 0) + 1;
+    await recordDailySend({ domain, count: 1 });
+    sentToday += 1;
     row.delivery = target.label;
     row.intendedEmail = row.email;
     row.sentTo = target.to;
@@ -242,14 +255,16 @@ export async function sendSelected(runId, businessIds) {
   }
 
   const modeNote = settings.testMode !== false ? ' (testitila → sinulle)' : '';
-  const limitNote = skippedLimit > 0 ? `, ${skippedLimit} jäi jonoon rajojen takia` : '';
-  run.message = `Lähetetty ${sent} viestiä${modeNote}${limitNote}`;
+  const limitNote = skippedLimit > 0 ? `, ${skippedLimit} jäi jonoon päivärajan takia` : '';
+  run.message = `Lähetetty ${sent} viestiä${modeNote}${limitNote} · tänään ${sentToday}/${maxEmailsPerDay}`;
   await saveRun(run);
   return {
     sent,
     skippedLimit,
-    limitReached: skippedLimit > 0 || sent >= maxSendPerBatch,
-    maxSendPerBatch,
+    sentToday,
+    remainingToday: Math.max(0, maxEmailsPerDay - sentToday),
+    limitReached: skippedLimit > 0 || sentToday >= maxEmailsPerDay,
+    maxEmailsPerDay,
     maxEmailsPerDomain,
     processedIds,
     run,

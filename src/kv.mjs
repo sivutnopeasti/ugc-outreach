@@ -73,6 +73,7 @@ function fsPath(key) {
   if (key === 'sessions') return path.join(FS_ROOT, 'sessions.json');
   if (key.startsWith('run:')) return path.join(FS_ROOT, 'runs', `${key.slice(4)}.json`);
   if (key.startsWith('csv:')) return path.join(FS_ROOT, 'uploads', `${key.slice(4)}.csv`);
+  if (key.startsWith('send-stats:')) return path.join(FS_ROOT, 'send-stats', `${key.slice('send-stats:'.length)}.json`);
   return path.join(FS_ROOT, `${key}.txt`);
 }
 

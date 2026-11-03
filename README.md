@@ -15,7 +15,7 @@ Viesti ohjaa lomakkeelle: https://ugcsuomi.fi/ilmoita-kampanjasta-sisallontuotta
 
 CSV ja Instagram analysoidaan normaalisti, mutta “Lähetä” lähettää viestit **sinulle** (testiosoite / lähettäjän sähköposti), ei yrityksille. Aiheeseen tulee etuliite `[TEST]` ja viestiin merkintä alkuperäisestä vastaanottajasta. Poista testitila Asetuksista vasta kun olet valmis oikeaan lähetykseen.
 
-Oletusrajat: **max 6 viestiä / lähetys** ja **max 2 / domain**. Molemmat säädetään Asetuksissa. Voit lisätä useita lähettäjätilejä (Gmail/Brevo); automaatio kierrättää niitä.
+Oletusrajat: **max 6 viestiä / päivä** (liukusäädin Asetuksissa) ja **max 2 / domain / päivä**. Päivä vaihtuu Suomen ajassa. Voit lisätä useita lähettäjätilejä (Gmail/Brevo); automaatio kierrättää niitä.
 
 ### Instagram-varmistus
 

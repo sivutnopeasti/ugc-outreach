@@ -45,7 +45,7 @@ export function publicSettings(settings) {
     minMedianViews: settings.minMedianViews || 1000,
     testMode: settings.testMode !== false,
     testInboxEmail: settings.testInboxEmail || '',
-    maxSendPerBatch: Number(settings.maxSendPerBatch || 6),
+    maxEmailsPerDay: Number(settings.maxEmailsPerDay || settings.maxSendPerBatch || 6),
     maxEmailsPerDomain: Number(settings.maxEmailsPerDomain || 2),
     mailAccounts: publicMailAccounts(settings.mailAccounts || []),
     hasPassword: Boolean(settings.appPasswordHash),
@@ -75,11 +75,50 @@ export function defaultSettings() {
     minMedianViews: 1000,
     testMode: true,
     testInboxEmail: '',
-    maxSendPerBatch: 6,
+    maxEmailsPerDay: 6,
     maxEmailsPerDomain: 2,
     mailAccounts: [],
     appPasswordHash: '',
   };
+}
+
+export function helsinkiDayKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Helsinki',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+export async function readDailySendStats(day = helsinkiDayKey()) {
+  await ensureLocalDirs();
+  const raw = await kvGet(`send-stats:${day}`);
+  if (!raw) return { day, total: 0, byDomain: {} };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      day,
+      total: Number(parsed.total || 0),
+      byDomain: parsed.byDomain && typeof parsed.byDomain === 'object' ? parsed.byDomain : {},
+    };
+  } catch {
+    return { day, total: 0, byDomain: {} };
+  }
+}
+
+export async function recordDailySend({ domain, count = 1, day = helsinkiDayKey() } = {}) {
+  const stats = await readDailySendStats(day);
+  const next = {
+    day,
+    total: Number(stats.total || 0) + Number(count || 0),
+    byDomain: { ...(stats.byDomain || {}) },
+  };
+  if (domain) {
+    next.byDomain[domain] = Number(next.byDomain[domain] || 0) + Number(count || 0);
+  }
+  await kvSet(`send-stats:${day}`, JSON.stringify(next));
+  return next;
 }
 
 export function settingsToEnv(settings) {

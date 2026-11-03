@@ -1,12 +1,22 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '../../../src/auth.mjs';
 import { mergeMailAccounts } from '../../../src/mail.mjs';
-import { publicSettings, readSettings, writeSettings } from '../../../src/store.mjs';
+import { publicSettings, readDailySendStats, readSettings, writeSettings } from '../../../src/store.mjs';
 
 export async function GET() {
   try {
     await requireSession();
-    return NextResponse.json({ settings: publicSettings(await readSettings()) });
+    const settings = await readSettings();
+    const daily = await readDailySendStats();
+    const maxEmailsPerDay = Number(settings.maxEmailsPerDay || settings.maxSendPerBatch || 6);
+    return NextResponse.json({
+      settings: publicSettings(settings),
+      daily: {
+        ...daily,
+        maxEmailsPerDay,
+        remainingToday: Math.max(0, maxEmailsPerDay - Number(daily.total || 0)),
+      },
+    });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
@@ -41,8 +51,14 @@ export async function POST(request) {
       minMedianViews: Number(body.minMedianViews || current.minMedianViews || 1000),
       testMode: body.testMode === undefined ? current.testMode !== false : Boolean(body.testMode),
       testInboxEmail: body.testInboxEmail !== undefined ? String(body.testInboxEmail || '').trim() : (current.testInboxEmail || ''),
-      maxSendPerBatch: Math.max(1, Number(body.maxSendPerBatch ?? current.maxSendPerBatch ?? 6)),
-      maxEmailsPerDomain: Math.max(1, Number(body.maxEmailsPerDomain ?? current.maxEmailsPerDomain ?? 2)),
+      maxEmailsPerDay: Math.max(1, Math.min(200, Number(
+        body.maxEmailsPerDay
+        ?? body.maxSendPerBatch
+        ?? current.maxEmailsPerDay
+        ?? current.maxSendPerBatch
+        ?? 6,
+      ))),
+      maxEmailsPerDomain: Math.max(1, Math.min(200, Number(body.maxEmailsPerDomain ?? current.maxEmailsPerDomain ?? 2))),
       mailAccounts,
     };
     if (body.appPassword) next.appPassword = body.appPassword;

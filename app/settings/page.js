@@ -36,7 +36,7 @@ const EMPTY = {
   minMedianViews: 1000,
   testMode: true,
   testInboxEmail: '',
-  maxSendPerBatch: 6,
+  maxEmailsPerDay: 6,
   maxEmailsPerDomain: 2,
   mailAccounts: [],
   appPassword: '',
@@ -46,6 +46,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const [form, setForm] = useState(EMPTY);
   const [meta, setMeta] = useState({ aiKeySet: false, metaTokenSet: false });
+  const [daily, setDaily] = useState({ total: 0, remainingToday: 6, maxEmailsPerDay: 6 });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -83,12 +84,14 @@ export default function SettingsPage() {
         setForm((current) => ({
           ...current,
           ...body.settings,
+          maxEmailsPerDay: body.settings.maxEmailsPerDay || body.settings.maxSendPerBatch || 6,
           smtpPass: '',
           aiApiKey: '',
           metaAccessToken: '',
           appPassword: '',
           mailAccounts: accounts,
         }));
+        if (body.daily) setDaily(body.daily);
         setMeta({
           aiKeySet: body.settings.aiKeySet,
           metaTokenSet: body.settings.metaTokenSet,
@@ -215,30 +218,33 @@ export default function SettingsPage() {
           />
         </label>
 
-        <h2 style={{ marginBottom: 0 }}>Lähetysrajat</h2>
+        <h2 style={{ marginBottom: 0 }}>Lähetysrajat (per päivä)</h2>
         <p className="muted" style={{ marginTop: 0 }}>
-          Testiversion oletus: enintään 6 viestiä per lähetys. Voit myös rajoittaa, paljonko yhtä domainia (esim. gmail.com) käytetään kerralla.
+          Oletus testissä: 6 sähköpostia / päivä (Suomen aika). Tänään käytetty: <strong>{daily.total || 0}</strong> / {form.maxEmailsPerDay}.
         </p>
-        <div className="grid two">
-          <label>
-            Max viestejä per lähetys
-            <input
-              type="number"
-              min="1"
-              value={form.maxSendPerBatch}
-              onChange={(e) => update('maxSendPerBatch', e.target.value)}
-            />
-          </label>
-          <label>
-            Max viestejä per domain
-            <input
-              type="number"
-              min="1"
-              value={form.maxEmailsPerDomain}
-              onChange={(e) => update('maxEmailsPerDomain', e.target.value)}
-            />
-          </label>
-        </div>
+        <label>
+          Max sähköposteja per päivä: <strong>{form.maxEmailsPerDay}</strong>
+          <input
+            className="range"
+            type="range"
+            min="1"
+            max="50"
+            step="1"
+            value={form.maxEmailsPerDay}
+            onChange={(e) => update('maxEmailsPerDay', Number(e.target.value))}
+          />
+          <div className="range-scale muted"><span>1</span><span>25</span><span>50</span></div>
+        </label>
+        <label>
+          Max viestejä per lähettäjädomain / päivä
+          <input
+            type="number"
+            min="1"
+            max="50"
+            value={form.maxEmailsPerDomain}
+            onChange={(e) => update('maxEmailsPerDomain', e.target.value)}
+          />
+        </label>
 
         <h2 style={{ marginBottom: 0 }}>Lähettäjätilit (voit käyttää useita yhtä aikaa)</h2>
         <p className="muted" style={{ marginTop: 0 }}>

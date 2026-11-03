@@ -7,6 +7,7 @@ import { parseHandleList } from '../src/ai.mjs';
 import { normalizeBusinessId, parseCsv, rowFromRecord } from '../src/csv.mjs';
 import { handleCandidatesFromName, profileMatchesCompany, scoreInstagramMatch } from '../src/handles.mjs';
 import { emailDomain, pickSenderAccount, resolveMailAccounts, resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
+import { helsinkiDayKey } from '../src/store.mjs';
 import { assessPresence } from '../src/score.mjs';
 import { findInstagram, pickEmail } from '../src/sources.mjs';
 import { evaluateCompany, processFile } from '../src/run.mjs';
@@ -280,6 +281,10 @@ test('uncertain Instagram match waits for manual review', async () => {
   assert.equal(result.decision, 'needs_review');
   assert.equal(result.instagramConfidence, 'needs_review');
   assert.equal(result.pendingDecision, 'weak');
+});
+
+test('helsinki day key is YYYY-MM-DD', () => {
+  assert.match(helsinkiDayKey(new Date('2026-11-03T12:00:00Z')), /^\d{4}-\d{2}-\d{2}$/);
 });
 
 test('sender accounts rotate within domain limits', () => {
