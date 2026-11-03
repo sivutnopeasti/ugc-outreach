@@ -3,9 +3,12 @@ import path from 'node:path';
 import { aiConfig, polishOutreachMessage, suggestInstagramHandles } from './ai.mjs';
 import { parseCsv, rowFromRecord, toCsv } from './csv.mjs';
 import { findAtHandles, handleCandidatesFromName, scoreInstagramMatch } from './handles.mjs';
+import { isInstagramRateLimitError } from './instagram.mjs';
 import { assessPresence, usernameFromInstagram } from './score.mjs';
 import { fetchAds, fetchInstagram, fetchSite, lookupCompany, normalizeWebsite, pickEmail } from './sources.mjs';
 import { buildMessage } from './template.mjs';
+
+const MAX_HANDLE_CANDIDATES = 4;
 
 export async function loadRows(csvPath) {
   const text = await readFile(csvPath, 'utf8');
@@ -252,11 +255,15 @@ async function discoverInstagram({ deps, options, companyName, website, companyE
 
   const tried = new Set();
   let bestReview = null;
+  let lastFetchError = '';
+  let attempts = 0;
 
   for (const raw of candidates) {
     const username = usernameFromInstagram(raw);
     if (!username || tried.has(username)) continue;
     tried.add(username);
+    attempts += 1;
+    if (attempts > MAX_HANDLE_CANDIDATES) break;
     try {
       const profile = await deps.fetchInstagram(username);
       const match = scoreInstagramMatch(profile, {
@@ -283,13 +290,27 @@ async function discoverInstagram({ deps, options, companyName, website, companyE
           };
         }
       }
-    } catch {
-      /* try next candidate */
+    } catch (error) {
+      lastFetchError = error.message || String(error);
+      // Rate limit: stop guessing more handles so the rest of the batch can recover.
+      if (isInstagramRateLimitError(error)) {
+        return {
+          profile: null,
+          username: '',
+          match: { score: 0, confidence: 'none', reasons: [] },
+          error: lastFetchError || aiError,
+        };
+      }
     }
   }
 
   if (bestReview) return bestReview;
-  return { profile: null, username: '', match: { score: 0, confidence: 'none', reasons: [] }, error: aiError };
+  return {
+    profile: null,
+    username: '',
+    match: { score: 0, confidence: 'none', reasons: [] },
+    error: aiError || lastFetchError,
+  };
 }
 
 async function maybeSend({ result, message, options, suppression, sent, deliver }) {
@@ -367,10 +388,11 @@ function safeName(value) {
 
 export function defaultDeps(env = process.env) {
   const ai = aiConfig(env);
+  const sessionId = env.IG_SESSIONID || '';
   return {
     lookupCompany,
     fetchSite,
-    fetchInstagram,
+    fetchInstagram: (username) => fetchInstagram(username, { sessionId }),
     fetchAds: (name) => fetchAds(name, env.META_ACCESS_TOKEN || ''),
     suggestHandles: (payload) => suggestInstagramHandles(payload, ai),
     polishMessage: (message, context) => polishOutreachMessage(message, context, ai),

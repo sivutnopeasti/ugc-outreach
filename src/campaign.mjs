@@ -56,7 +56,8 @@ export async function analyzeNext(runId) {
   const deps = defaultDeps(env);
   const options = {
     send: false,
-    delayMs: 0,
+    // Keep a small pause so Instagram rate limits recover between companies.
+    delayMs: 1500,
     thresholds: {
       minFollowers: Number(settings.minFollowers || 3000),
       minMedianLikes: Number(settings.minMedianLikes || 30),

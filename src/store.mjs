@@ -37,6 +37,8 @@ export function publicSettings(settings) {
     smtpUser: settings.smtpUser || '',
     smtpPassSet: Boolean(settings.smtpPass),
     metaTokenSet: Boolean(settings.metaAccessToken),
+    instagramSessionSet: Boolean(settings.instagramSessionId || process.env.IG_SESSIONID),
+    instagramSessionFromEnv: Boolean(process.env.IG_SESSIONID),
     aiKeySet: Boolean(aiConfig(process.env).enabled || settings.aiApiKey),
     aiFromEnv: Boolean(process.env.GROK_TOKEN || process.env.XAI_API_KEY),
     aiProvider: aiConfig({
@@ -86,6 +88,7 @@ export function defaultSettings() {
     maxEmailsPerDay: 6,
     maxEmailsPerDomain: 2,
     mailAccounts: [],
+    instagramSessionId: '',
     appPasswordHash: '',
   };
 }
@@ -141,6 +144,7 @@ export function settingsToEnv(settings) {
     SMTP_USER: settings.smtpUser || '',
     SMTP_PASS: settings.smtpPass || '',
     META_ACCESS_TOKEN: settings.metaAccessToken || '',
+    IG_SESSIONID: settings.instagramSessionId || process.env.IG_SESSIONID || '',
     GROK_TOKEN: process.env.GROK_TOKEN || process.env.XAI_API_KEY || '',
     XAI_API_KEY: process.env.XAI_API_KEY || '',
     AI_API_KEY: settings.aiApiKey || '',

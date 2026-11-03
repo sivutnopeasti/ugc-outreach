@@ -61,8 +61,10 @@ export async function instagramJson(url, headers = {}) {
 }
 
 export async function curlJson(url, headers = {}) {
-  const args = ['-sS', '-L', '--max-time', '25', '-A', BROWSER_UA];
+  const ua = headers['user-agent'] || headers['User-Agent'] || BROWSER_UA;
+  const args = ['-sS', '-L', '--max-time', '25', '-A', ua];
   for (const [key, value] of Object.entries(headers)) {
+    if (/^user-agent$/i.test(key)) continue;
     args.push('-H', `${key}: ${value}`);
   }
   args.push('-w', '\n%{http_code}', url);

@@ -23,10 +23,12 @@ Oletusrajat: **max 6 viestiä / päivä** (liukusäädin Asetuksissa) ja **max 2
 
 ### Instagram-varmistus
 
-Jos tiliä ei löydy verkkosivulta, sovellus kokeilee useita käyttäjänimiä (ja AI-ehdotuksia jos avain on asetettu). Osuma pisteytetään biosta, nimestä ja bio-linkeistä:
+Jos tiliä ei löydy verkkosivulta, sovellus kokeilee muutamaa käyttäjänimeä (ja AI-ehdotuksia jos `GROK_TOKEN` on asetettu). Osuma pisteytetään biosta, nimestä ja bio-linkeistä:
 
 - **Vahvistettu** → käytetään automaattisesti
 - **Epäselvä** → sinun pitää painaa **Vahvista** tai **Hylkää** kampanjassa (ei lähetystä ennen sitä)
+
+Instagram rate-limitoi Vercelin IP:itä herkästi (`HTTP 429`). Pipeline hidastaa hakuja automaattisesti. Jos rivit jäävät tilaan *“julkisia lukuja ei saatu”*, lisää Asetuksiin Instagram-`sessionid` (tai Vercel-env `IG_SESSIONID`) omasta kirjautuneesta selaimesta.
 
 CSV:
 

@@ -91,10 +91,23 @@ export function assessPresence(signals, thresholds = DEFAULT_THRESHOLDS) {
   }
 
   if (signals.instagramUsername && signals.instagramError) {
+    const detail = shortError(signals.instagramError);
     return {
       ...base,
       decision: 'unknown',
-      reasons: ['Instagram-tili löytyi, mutta julkisia lukuja ei saatu'],
+      reasons: [
+        detail
+          ? `Instagram-tili löytyi, mutta julkisia lukuja ei saatu (${detail})`
+          : 'Instagram-tili löytyi, mutta julkisia lukuja ei saatu',
+      ],
+    };
+  }
+
+  if (!profile && signals.instagramError && isRateLimitMessage(signals.instagramError)) {
+    return {
+      ...base,
+      decision: 'unknown',
+      reasons: [`Instagram rajoitti hakua kesken erän (${shortError(signals.instagramError)}) — odota hetki tai lisää sessionid asetuksiin`],
     };
   }
 
@@ -130,4 +143,16 @@ export function assessPresence(signals, thresholds = DEFAULT_THRESHOLDS) {
 function formatNumber(value) {
   const rounded = Math.round(value * 10) / 10;
   return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+function shortError(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^Instagram[^:]*:\s*/i, '')
+    .slice(0, 120);
+}
+
+function isRateLimitMessage(value) {
+  return /429|rate.?limit|rajoitti|please wait|odota|require_login|login/i.test(String(value || ''));
 }

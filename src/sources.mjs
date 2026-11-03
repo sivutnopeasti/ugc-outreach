@@ -1,4 +1,5 @@
-import { fetchJson, fetchText, instagramJson, jsonErrorHint } from './http.mjs';
+import { fetchInstagramProfile } from './instagram.mjs';
+import { fetchJson, fetchText } from './http.mjs';
 import { usernameFromInstagram } from './score.mjs';
 
 const CONTACT_PATHS = ['/yhteystiedot', '/ota-yhteytta', '/contact', '/meista'];
@@ -77,60 +78,8 @@ export async function fetchSite(website) {
   };
 }
 
-export async function fetchInstagram(username) {
-  const handle = usernameFromInstagram(username);
-  if (!handle) {
-    const error = new Error('Instagram-osoite ei kelpaa');
-    error.code = 'bad_handle';
-    throw error;
-  }
-  const profileUrl = `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(handle)}`;
-  let response = await instagramJson(profileUrl, instagramHeaders(handle));
-  if (response.status === 429) {
-    await new Promise((resolve) => setTimeout(resolve, 4000));
-    response = await instagramJson(profileUrl, instagramHeaders(handle));
-  }
-  const user = response.body?.data?.user;
-  if (!user) {
-    const hint = response.body
-      ? `Instagram ei palauttanut tiliä ${handle}`
-      : `Instagram-haku epäonnistui (@${handle}): ${jsonErrorHint(response.text, response.status)}`;
-    const error = new Error(hint);
-    error.code = response.body ? 'not_found' : 'bad_response';
-    throw error;
-  }
-  const posts = (user.edge_owner_to_timeline_media?.edges || []).slice(0, 12).map((edge) => {
-    const node = edge.node || {};
-    const hidden = node.like_and_view_counts_disabled === true;
-    return {
-      isVideo: node.is_video === true,
-      likes: hidden ? null : numberOrNull(node.edge_liked_by?.count),
-      comments: numberOrNull(node.edge_media_to_comment?.count),
-      views: hidden ? null : numberOrNull(node.video_view_count),
-    };
-  });
-  const bioLinks = Array.isArray(user.bio_links)
-    ? user.bio_links
-      .map((link) => ({
-        url: typeof link?.url === 'string' ? link.url : '',
-        title: typeof link?.title === 'string' ? link.title : '',
-      }))
-      .filter((link) => link.url)
-    : [];
-
-  return {
-    username: user.username || handle,
-    fullName: user.full_name || '',
-    biography: typeof user.biography === 'string' ? user.biography : '',
-    isPrivate: user.is_private === true,
-    isVerified: user.is_verified === true,
-    isBusinessAccount: user.is_business_account === true || user.is_professional_account === true,
-    followers: numberOrNull(user.edge_followed_by?.count),
-    businessEmail: typeof user.business_email === 'string' ? user.business_email.toLowerCase() : '',
-    externalUrl: typeof user.external_url === 'string' ? user.external_url : '',
-    bioLinks,
-    posts,
-  };
+export async function fetchInstagram(username, options = {}) {
+  return fetchInstagramProfile(username, options);
 }
 
 export async function fetchAds(companyName, accessToken) {
@@ -243,17 +192,6 @@ function compactName(value) {
     .replace(/\p{M}/gu, '')
     .replace(/\b(oyj|oy|ab|ltd|inc|group|konserni)\b/g, '')
     .replace(/[^a-z0-9]/g, '');
-}
-
-function instagramHeaders(handle) {
-  return {
-    'x-ig-app-id': '936619743392459',
-    referer: `https://www.instagram.com/${handle}/`,
-  };
-}
-
-function numberOrNull(value) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function decodeBasicEntities(value) {

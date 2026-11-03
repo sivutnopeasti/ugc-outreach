@@ -39,13 +39,21 @@ const EMPTY = {
   maxEmailsPerDay: 6,
   maxEmailsPerDomain: 2,
   mailAccounts: [],
+  instagramSessionId: '',
   appPassword: '',
 };
 
 export default function SettingsPage() {
   const router = useRouter();
   const [form, setForm] = useState(EMPTY);
-  const [meta, setMeta] = useState({ aiKeySet: false, aiFromEnv: false, aiProvider: 'none', metaTokenSet: false });
+  const [meta, setMeta] = useState({
+    aiKeySet: false,
+    aiFromEnv: false,
+    aiProvider: 'none',
+    metaTokenSet: false,
+    instagramSessionSet: false,
+    instagramSessionFromEnv: false,
+  });
   const [daily, setDaily] = useState({ total: 0, remainingToday: 6, maxEmailsPerDay: 6 });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -88,6 +96,7 @@ export default function SettingsPage() {
           smtpPass: '',
           aiApiKey: '',
           metaAccessToken: '',
+          instagramSessionId: '',
           appPassword: '',
           mailAccounts: accounts,
         }));
@@ -97,6 +106,8 @@ export default function SettingsPage() {
           aiFromEnv: body.settings.aiFromEnv,
           aiProvider: body.settings.aiProvider || 'none',
           metaTokenSet: body.settings.metaTokenSet,
+          instagramSessionSet: body.settings.instagramSessionSet,
+          instagramSessionFromEnv: body.settings.instagramSessionFromEnv,
         });
       })
       .catch((err) => setError(err.message));
@@ -168,6 +179,8 @@ export default function SettingsPage() {
         smtpPass: '',
         aiApiKey: '',
         metaAccessToken: '',
+        instagramSessionId: '',
+        clearInstagramSession: false,
         appPassword: '',
         mailAccounts: accounts,
       }));
@@ -176,6 +189,8 @@ export default function SettingsPage() {
         aiFromEnv: body.settings.aiFromEnv,
         aiProvider: body.settings.aiProvider || 'none',
         metaTokenSet: body.settings.metaTokenSet,
+        instagramSessionSet: body.settings.instagramSessionSet,
+        instagramSessionFromEnv: body.settings.instagramSessionFromEnv,
       });
     } catch (err) {
       setError(err.message);
@@ -305,6 +320,39 @@ export default function SettingsPage() {
           <label>Min. kommentit (mediaani)<input type="number" value={form.minMedianComments} onChange={(e) => update('minMedianComments', e.target.value)} /></label>
           <label>Min. katselut (mediaani)<input type="number" value={form.minMedianViews} onChange={(e) => update('minMedianViews', e.target.value)} /></label>
         </div>
+
+        <h2 style={{ marginBottom: 0 }}>Instagram-lukujen haku</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Instagram rajoittaa Vercelin IP-osoitteita. Jos somearvio jää usein tyhjäksi, lisää selaimen
+          <code> sessionid</code>-eväste (Chrome → Instagram → Application → Cookies) tai Vercel-env <code>IG_SESSIONID</code>.
+        </p>
+        <div className={meta.instagramSessionSet ? 'success' : 'banner-test'}>
+          {meta.instagramSessionFromEnv
+            ? 'IG_SESSIONID on käytössä ympäristömuuttujasta.'
+            : meta.instagramSessionSet
+              ? 'Instagram-sessionid on tallennettu asetuksiin.'
+              : 'Ei sessionid:ää — haku toimii kun Instagram ei rate-limitoi, mutta eräajoissa luvut voivat jäädä saamatta.'}
+        </div>
+        <label>
+          Instagram sessionid {meta.instagramSessionSet ? '(tallennettu — jätä tyhjäksi säilyttääksesi)' : ''}
+          <input
+            type="password"
+            value={form.instagramSessionId}
+            onChange={(e) => update('instagramSessionId', e.target.value)}
+            placeholder="liitä sessionid tähän"
+            autoComplete="off"
+          />
+        </label>
+        {meta.instagramSessionSet && !meta.instagramSessionFromEnv && (
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={Boolean(form.clearInstagramSession)}
+              onChange={(e) => update('clearInstagramSession', e.target.checked)}
+            />
+            Poista tallennettu Instagram-sessionid
+          </label>
+        )}
 
         <h2 style={{ marginBottom: 0 }}>Tekoäly (Grok)</h2>
         <p className="muted" style={{ marginTop: 0 }}>

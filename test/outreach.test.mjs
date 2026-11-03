@@ -7,6 +7,7 @@ import { aiConfig, parseHandleList } from '../src/ai.mjs';
 import { countCsvDataRows, normalizeBusinessId, parseCsv, rowFromRecord, sliceCsvText } from '../src/csv.mjs';
 import { handleCandidatesFromName, profileMatchesCompany, scoreInstagramMatch } from '../src/handles.mjs';
 import { parseJsonSafe } from '../src/http.mjs';
+import { parseProfileFromHtml } from '../src/instagram.mjs';
 import { emailDomain, pickSenderAccount, resolveMailAccounts, resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
 import { helsinkiDayKey } from '../src/store.mjs';
 import { assessPresence } from '../src/score.mjs';
@@ -69,9 +70,52 @@ test('missing data is not treated as a weak account', () => {
     ads: { checked: false, active: null },
   });
   assert.equal(blocked.decision, 'unknown');
+  assert.match(blocked.reasons.join(' '), /julkisia lukuja ei saatu/);
+
+  const rateLimited = assessPresence({
+    website: 'https://esimerkki.fi',
+    instagramError: 'Instagram rajoitti hakua (@esimerkki, HTTP 429)',
+    ads: { checked: false, active: null },
+  });
+  assert.equal(rateLimited.decision, 'unknown');
+  assert.match(rateLimited.reasons.join(' '), /rajoitti hakua/);
 
   const noSite = assessPresence({ ads: { checked: false, active: null } });
   assert.equal(noSite.decision, 'unknown');
+});
+
+test('instagram HTML og meta can supply follower counts', () => {
+  const html = `
+    <meta property="og:title" content="Esimerkki Oy (@esimerkki)" />
+    <meta property="og:description" content="1,234 Followers, 56 Following, 78 Posts - See Instagram photos and videos from Esimerkki Oy (@esimerkki)" />
+  `;
+  const profile = parseProfileFromHtml(html, 'esimerkki');
+  assert.equal(profile.followers, 1234);
+  assert.equal(profile.fullName, 'Esimerkki Oy');
+  assert.equal(profile.username, 'esimerkki');
+});
+
+test('instagram embedded xig payload is parsed', () => {
+  const payload = {
+    require: [{
+      xig_user_by_username: {
+        user: {
+          username: 'esimerkki',
+          full_name: 'Esimerkki Oy',
+          biography: 'Hei',
+          follower_count: 88,
+          is_private: false,
+          is_business_account: true,
+          external_url: 'https://esimerkki.fi',
+        },
+      },
+    }],
+  };
+  const html = `<script type="application/json">${JSON.stringify(payload)}</script>`;
+  const profile = parseProfileFromHtml(html, 'esimerkki');
+  assert.equal(profile.followers, 88);
+  assert.equal(profile.isBusinessAccount, true);
+  assert.equal(profile.externalUrl, 'https://esimerkki.fi');
 });
 
 test('instagram links and company emails are chosen from the website', () => {

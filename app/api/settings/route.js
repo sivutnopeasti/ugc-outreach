@@ -60,11 +60,15 @@ export async function POST(request) {
       ))),
       maxEmailsPerDomain: Math.max(1, Math.min(200, Number(body.maxEmailsPerDomain ?? current.maxEmailsPerDomain ?? 2))),
       mailAccounts,
+      instagramSessionId: body.instagramSessionId
+        ? String(body.instagramSessionId).trim()
+        : current.instagramSessionId || '',
     };
     if (body.appPassword) next.appPassword = body.appPassword;
     if (body.clearSmtpPass) next.smtpPass = '';
     if (body.clearAiKey) next.aiApiKey = '';
     if (body.clearMetaToken) next.metaAccessToken = '';
+    if (body.clearInstagramSession) next.instagramSessionId = '';
     const settings = await writeSettings(next);
     return NextResponse.json({ ok: true, settings });
   } catch (error) {
