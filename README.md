@@ -11,6 +11,10 @@ Viesti ohjaa lomakkeelle: https://ugcsuomi.fi/ilmoita-kampanjasta-sisallontuotta
 3. **Asetukset** → Gmail-sovellussalasana
 4. **Kampanjat** → lataa CSV → Analysoi → Esikatselu → Lähetä valitut
 
+### Isot CSV:t (esim. 35 000 riviä)
+
+Koko listaa ei lähetetä Verceliin kerralla (pyyntökoko / Redis / timeout). Selain leikkaa **erän** (oletus 100, max 300 riviä) ja vain se ladataan. Aja seuraava erä siirtämällä “Aloita rivistä”.
+
 ### Testitila (oletus päällä)
 
 CSV ja Instagram analysoidaan normaalisti, mutta “Lähetä” lähettää viestit **sinulle** (testiosoite / lähettäjän sähköposti), ei yrityksille. Aiheeseen tulee etuliite `[TEST]` ja viestiin merkintä alkuperäisestä vastaanottajasta. Poista testitila Asetuksista vasta kun olet valmis oikeaan lähetykseen.

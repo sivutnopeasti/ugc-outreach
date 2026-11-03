@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '../../../../../src/auth.mjs';
 import { sendSelected } from '../../../../../src/campaign.mjs';
+import { summarizeCampaign } from '../../../../../src/campaignView.mjs';
 import { readDailySendStats, readSettings } from '../../../../../src/store.mjs';
 
 export const runtime = 'nodejs';
@@ -34,6 +35,7 @@ export async function POST(request, { params }) {
     const result = await sendSelected(id, limited);
     return NextResponse.json({
       ...result,
+      run: summarizeCampaign(result.run),
       remaining: Math.max(0, businessIds.length - limited.length),
       processedIds: result.processedIds || limited,
     });

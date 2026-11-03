@@ -4,6 +4,43 @@ const SITE_KEYS = ['verkkosivu', 'www', 'website', 'url', 'kotisivu', 'web'];
 const EMAIL_KEYS = ['email', 'sähköposti', 'sahkoposti', 'e-mail'];
 const IG_KEYS = ['instagram', 'ig', 'instagram_url'];
 
+/** Laskee data-rivit (ilman otsikkoa) ilman täyttä kenttäparsimista. */
+export function countCsvDataRows(text) {
+  const lines = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .filter((line) => line.trim());
+  if (lines.length <= 1) return 0;
+  return lines.length - 1;
+}
+
+/** Ottaa CSV:stä erän: otsikko + rivit [offset, offset+limit). */
+export function sliceCsvText(text, offset = 0, limit = 100) {
+  const cleaned = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = cleaned.split('\n');
+  const nonEmpty = [];
+  for (const line of lines) {
+    if (line.trim()) nonEmpty.push(line);
+  }
+  if (nonEmpty.length === 0) {
+    return { csvText: '', totalRows: 0, offset: 0, limit: 0, header: '' };
+  }
+  const header = nonEmpty[0];
+  const data = nonEmpty.slice(1);
+  const start = Math.max(0, Number(offset) || 0);
+  const size = Math.max(1, Number(limit) || 100);
+  const slice = data.slice(start, start + size);
+  return {
+    csvText: [header, ...slice].join('\n'),
+    totalRows: data.length,
+    offset: start,
+    limit: slice.length,
+    header,
+  };
+}
+
 export function parseCsv(text) {
   const cleaned = String(text).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const firstLine = cleaned.split('\n').find((line) => line.trim()) ?? '';

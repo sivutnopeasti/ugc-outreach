@@ -1,15 +1,22 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Shell from '../../components/Shell';
 import PipelinePanel from '../../components/PipelinePanel';
 import { readJson } from '../../lib/api';
 
+const PAGE_SIZE = 50;
+
 export default function CampaignPage() {
   const { id } = useParams();
   const router = useRouter();
   const [campaign, setCampaign] = useState(null);
+  const [results, setResults] = useState([]);
+  const [resultTotal, setResultTotal] = useState(0);
+  const [resultOffset, setResultOffset] = useState(0);
+  const [counts, setCounts] = useState({ weak: 0, review: 0, strong: 0, unknown: 0, sent: 0 });
   const [selected, setSelected] = useState([]);
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState('');
@@ -27,16 +34,39 @@ export default function CampaignPage() {
   const initialized = useRef(false);
   const stepping = useRef(false);
   const pollRef = useRef(null);
+  const resultsRef = useRef([]);
 
-  async function load() {
-    const res = await fetch(`/api/campaigns/${id}`);
+  useEffect(() => {
+    resultsRef.current = results;
+  }, [results]);
+
+  function applyCampaignPayload(bodyCampaign, { appendLast = false } = {}) {
+    if (!bodyCampaign) return;
+    setCampaign((current) => ({ ...(current || {}), ...bodyCampaign, results: undefined }));
+    if (bodyCampaign.counts) setCounts(bodyCampaign.counts);
+    if (typeof bodyCampaign.resultTotal === 'number') setResultTotal(bodyCampaign.resultTotal);
+
+    if (Array.isArray(bodyCampaign.results)) {
+      setResults(bodyCampaign.results);
+      setResultOffset(bodyCampaign.resultOffset || 0);
+    } else if (appendLast && bodyCampaign.lastResult) {
+      setResults((current) => {
+        const without = current.filter((row) => row.businessId !== bodyCampaign.lastResult.businessId);
+        return [...without, bodyCampaign.lastResult];
+      });
+      if (typeof bodyCampaign.resultTotal === 'number') setResultTotal(bodyCampaign.resultTotal);
+    }
+  }
+
+  async function load(offset = resultOffset) {
+    const res = await fetch(`/api/campaigns/${id}?resultOffset=${offset}&resultLimit=${PAGE_SIZE}`);
     if (res.status === 401) {
       router.push('/login');
       return null;
     }
     const body = await readJson(res);
     if (!res.ok) throw new Error(body.error || 'Kampanjaa ei löytynyt');
-    setCampaign(body.campaign);
+    applyCampaignPayload(body.campaign);
     if (body.campaign.status === 'ready' && !initialized.current) {
       const defaults = (body.campaign.results || [])
         .filter((row) => row.decision === 'weak' && row.email && !alreadySent(row))
@@ -58,8 +88,8 @@ export default function CampaignPage() {
   function startPolling() {
     stopPolling();
     pollRef.current = setInterval(() => {
-      load().catch(() => {});
-    }, 900);
+      load(resultOffset).catch(() => {});
+    }, 1200);
   }
 
   function stopPolling() {
@@ -76,20 +106,24 @@ export default function CampaignPage() {
     setError('');
     startPolling();
     try {
-      let current = await load();
+      let current = await load(0);
       while (current && (current.status === 'queued' || current.status === 'running')) {
         const res = await fetch(`/api/campaigns/${id}/step`, { method: 'POST' });
         const body = await readJson(res);
         if (!res.ok) throw new Error(body.error || 'Analyysi epäonnistui');
         current = body.campaign;
-        setCampaign(current);
+        applyCampaignPayload(body.campaign, { appendLast: true });
         if (current.status === 'ready' && !initialized.current) {
-          const defaults = (current.results || [])
-            .filter((row) => row.decision === 'weak' && row.email && !alreadySent(row))
-            .map((row) => row.businessId);
-          setSelected(defaults);
           initialized.current = true;
         }
+      }
+      await load(0);
+      if (!initialized.current) {
+        const weakIds = resultsRef.current
+          .filter((row) => row.decision === 'weak' && row.email && !alreadySent(row))
+          .map((row) => row.businessId);
+        setSelected(weakIds);
+        initialized.current = true;
       }
     } catch (err) {
       setError(err.message);
@@ -97,13 +131,13 @@ export default function CampaignPage() {
       stopPolling();
       stepping.current = false;
       setPipelineLive(false);
-      await load().catch(() => {});
+      await load(0).catch(() => {});
     }
   }
 
   useEffect(() => {
     loadSettings().catch(() => {});
-    load()
+    load(0)
       .then((current) => {
         if (current && (current.status === 'queued' || current.status === 'running')) {
           return stepUntilDone();
@@ -114,17 +148,6 @@ export default function CampaignPage() {
     return () => stopPolling();
   }, [id]);
 
-  const stats = useMemo(() => {
-    const rows = campaign?.results || [];
-    return {
-      weak: rows.filter((row) => row.decision === 'weak').length,
-      review: rows.filter((row) => row.decision === 'needs_review').length,
-      strong: rows.filter((row) => row.decision === 'strong').length,
-      unknown: rows.filter((row) => row.decision === 'unknown' || row.decision === 'skip').length,
-      sent: rows.filter((row) => alreadySent(row)).length,
-    };
-  }, [campaign]);
-
   const testInbox = settings.testInboxEmail || settings.fromEmail || 'lähettäjän osoitteeseen';
   const testMode = settings.testMode !== false;
   const isRunning = pipelineLive
@@ -132,6 +155,16 @@ export default function CampaignPage() {
     || campaign?.status === 'queued'
     || campaign?.status === 'running'
     || Boolean(campaign?.pipeline?.active);
+
+  const nextOffset = Number(campaign?.batchMeta?.nextOffset || 0);
+  const sourceTotal = Number(campaign?.batchMeta?.sourceTotalRows || 0);
+
+  const stats = useMemo(() => ({
+    weak: counts.weak || 0,
+    review: counts.review || 0,
+    strong: (counts.strong || 0) + (counts.unknown || 0),
+    sent: counts.sent || 0,
+  }), [counts]);
 
   function toggle(idValue) {
     setSelected((current) => (
@@ -142,8 +175,7 @@ export default function CampaignPage() {
   }
 
   function toggleAllWeak() {
-    if (!campaign) return;
-    const ids = campaign.results
+    const ids = results
       .filter((row) => row.decision === 'weak' && row.email && !alreadySent(row))
       .map((row) => row.businessId);
     setSelected(ids);
@@ -160,12 +192,10 @@ export default function CampaignPage() {
       });
       const body = await readJson(res);
       if (!res.ok) throw new Error(body.error || 'Vahvistus epäonnistui');
-      setCampaign(body.campaign);
+      applyCampaignPayload(body.campaign?.results ? body.campaign : null);
+      await load(resultOffset);
       if (action === 'confirm') {
-        const row = (body.campaign.results || []).find((item) => item.businessId === businessId);
-        if (row?.decision === 'weak' && row.email && !alreadySent(row)) {
-          setSelected((current) => (current.includes(businessId) ? current : [...current, businessId]));
-        }
+        setSelected((current) => (current.includes(businessId) ? current : [...current, businessId]));
         setMessage('Instagram vahvistettu.');
       } else {
         setSelected((current) => current.filter((item) => item !== businessId));
@@ -197,7 +227,8 @@ export default function CampaignPage() {
       });
       const body = await readJson(res);
       if (!res.ok) throw new Error(body.error || 'Lähetys epäonnistui');
-      setCampaign(body.run);
+      if (body.run) applyCampaignPayload({ ...body.run, results: body.run.results }, { appendLast: false });
+      await load(resultOffset);
       if (typeof body.sentToday === 'number') {
         setDaily((current) => ({
           ...current,
@@ -214,23 +245,23 @@ export default function CampaignPage() {
         + ` · tänään ${body.sentToday ?? '?'}/${body.maxEmailsPerDay || dayLimit}`
         + (skipped ? ` · ${skipped} jäi jonoon päivärajan takia` : ''),
       );
-      setSelected((current) => current.filter((item) => {
-        const row = (body.run?.results || []).find((entry) => entry.businessId === item);
-        return row && !alreadySent(row);
-      }));
+      setSelected([]);
     } catch (err) {
       setError(err.message);
     } finally {
       stopPolling();
       setSending(false);
       setPipelineLive(false);
-      await load().catch(() => {});
+      await load(resultOffset).catch(() => {});
     }
   }
 
   if (!campaign) {
     return <Shell><div className="panel">{error || 'Ladataan kampanjaa…'}</div></Shell>;
   }
+
+  const pageStart = resultOffset + 1;
+  const pageEnd = Math.min(resultTotal, resultOffset + results.length);
 
   return (
     <Shell>
@@ -249,7 +280,7 @@ export default function CampaignPage() {
               {pipelineLive ? 'Analysoi…' : 'Jatka analyysiä'}
             </button>
           )}
-          <button type="button" className="btn secondary" onClick={toggleAllWeak} disabled={isRunning}>Valitse kaikki heikot</button>
+          <button type="button" className="btn secondary" onClick={toggleAllWeak} disabled={isRunning}>Valitse näkyvät heikot</button>
           <button type="button" className="btn accent" disabled={sending || selected.length === 0 || pipelineLive} onClick={send}>
             {sending
               ? 'Lähetetään…'
@@ -264,25 +295,39 @@ export default function CampaignPage() {
         <PipelinePanel campaign={campaign} sending={sending} />
       </div>
 
+      {sourceTotal > 0 && (
+        <div className="banner-test" style={{ marginBottom: 16 }}>
+          Tämä on erä isosta listasta
+          {campaign.batchMeta
+            ? ` (rivit ${(campaign.batchMeta.offset || 0) + 1}–${(campaign.batchMeta.offset || 0) + (campaign.batchMeta.batchSize || campaign.total || 0)} / ${sourceTotal.toLocaleString('fi-FI')})`
+            : ` (${sourceTotal.toLocaleString('fi-FI')} riviä lähdetiedostossa)`}.
+          {nextOffset < sourceTotal && (
+            <>
+              {' '}
+              <Link href="/">Palaa etusivulle ja aja seuraava erä alkaen rivistä {nextOffset + 1}</Link>
+              {' '}(aseta “Aloita rivistä” = {nextOffset}).
+            </>
+          )}
+        </div>
+      )}
+
       {testMode && (
         <div className="banner-test" style={{ marginBottom: 16 }}>
-          Testitila päällä — Instagram-analyysi toimii, mutta sähköpostit menevät osoitteeseen <strong>{testInbox}</strong>, ei yrityksille.
-          Max {settings.maxEmailsPerDay || 6} viestiä / päivä
-          ({daily.total || 0} käytetty, {daily.remainingToday ?? settings.maxEmailsPerDay ?? 6} jäljellä),
-          max {settings.maxEmailsPerDomain || 2} / domain / päivä.
+          Testitila päällä — max {settings.maxEmailsPerDay || 6} viestiä / päivä
+          ({daily.total || 0} käytetty, {daily.remainingToday ?? settings.maxEmailsPerDay ?? 6} jäljellä).
         </div>
       )}
 
       {stats.review > 0 && (
         <div className="banner-test" style={{ marginBottom: 16 }}>
-          {stats.review} Instagram-ehdokasta odottaa sinun vahvistustasi. Niitä ei lähetetä ennen kuin hyväksyt tai hylkäät tilin.
+          {stats.review} Instagram-ehdokasta odottaa vahvistusta.
         </div>
       )}
 
       <div className="grid three" style={{ marginBottom: 24 }}>
         <div className="stat"><span className="muted">Heikko some</span><strong>{stats.weak}</strong></div>
         <div className="stat"><span className="muted">Vahvista Instagram</span><strong>{stats.review}</strong></div>
-        <div className="stat"><span className="muted">Vahva / ohitettu / lähetetty</span><strong>{stats.strong + stats.unknown + stats.sent}</strong></div>
+        <div className="stat"><span className="muted">Vahva / ohitettu / lähetetty</span><strong>{stats.strong + stats.sent}</strong></div>
       </div>
 
       {error && <div className="error" style={{ marginBottom: 16 }}>{error}</div>}
@@ -290,6 +335,29 @@ export default function CampaignPage() {
       {campaign.error && <div className="error" style={{ marginBottom: 16 }}>{campaign.error}</div>}
 
       <div className="panel">
+        <div className="hero" style={{ marginBottom: 12 }}>
+          <div className="muted">
+            Tulokset {resultTotal ? `${pageStart}–${pageEnd} / ${resultTotal}` : '—'}
+          </div>
+          <div className="actions" style={{ marginTop: 0 }}>
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={resultOffset <= 0 || isRunning}
+              onClick={() => load(Math.max(0, resultOffset - PAGE_SIZE))}
+            >
+              Edellinen
+            </button>
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={resultOffset + results.length >= resultTotal || isRunning}
+              onClick={() => load(resultOffset + PAGE_SIZE)}
+            >
+              Seuraava
+            </button>
+          </div>
+        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -304,7 +372,7 @@ export default function CampaignPage() {
               </tr>
             </thead>
             <tbody>
-              {(campaign.results || []).map((row) => {
+              {results.map((row) => {
                 const isCurrent = campaign.pipeline?.businessId
                   && row.businessId === campaign.pipeline.businessId
                   && isRunning;

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { aiConfig, parseHandleList } from '../src/ai.mjs';
-import { normalizeBusinessId, parseCsv, rowFromRecord } from '../src/csv.mjs';
+import { countCsvDataRows, normalizeBusinessId, parseCsv, rowFromRecord, sliceCsvText } from '../src/csv.mjs';
 import { handleCandidatesFromName, profileMatchesCompany, scoreInstagramMatch } from '../src/handles.mjs';
 import { parseJsonSafe } from '../src/http.mjs';
 import { emailDomain, pickSenderAccount, resolveMailAccounts, resolveSendTarget, resolveSmtpConfig } from '../src/mail.mjs';
@@ -19,6 +19,17 @@ test('CSV accepts Finnish semicolon headers and a business id', () => {
   assert.equal(rows[0].name, 'Oy Testi, Ab');
   assert.equal(rows[0].businessId, '1234567-8');
   assert.equal(normalizeBusinessId('12345678'), '1234567-8');
+});
+
+test('CSV batch slicing supports large lists', () => {
+  const big = ['nimi;y_tunnus', ...Array.from({ length: 25 }, (_, i) => `Yritys ${i + 1};123456${i}-1`)].join('\n');
+  assert.equal(countCsvDataRows(big), 25);
+  const batch = sliceCsvText(big, 10, 5);
+  assert.equal(batch.totalRows, 25);
+  assert.equal(batch.limit, 5);
+  assert.match(batch.csvText, /Yritys 11/);
+  assert.match(batch.csvText, /Yritys 15/);
+  assert.equal(batch.csvText.includes('Yritys 16'), false);
 });
 
 test('a large public account is left alone', () => {

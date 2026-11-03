@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireSession } from '../../../../../src/auth.mjs';
 import { confirmInstagram } from '../../../../../src/campaign.mjs';
+import { summarizeCampaign } from '../../../../../src/campaignView.mjs';
 
 export const runtime = 'nodejs';
 
@@ -15,7 +16,7 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: 'businessId puuttuu' }, { status: 400 });
     }
     const run = await confirmInstagram(id, { businessId, action });
-    return NextResponse.json({ campaign: run });
+    return NextResponse.json({ campaign: summarizeCampaign(run) });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }

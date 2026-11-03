@@ -164,7 +164,7 @@ export async function writeSuppression(text) {
   await kvSet('suppression', String(text || ''));
 }
 
-export async function createRun({ name, csvText }) {
+export async function createRun({ name, csvText, batchMeta = null }) {
   await ensureLocalDirs();
   const id = `${Date.now()}-${randomBytes(3).toString('hex')}`;
   await kvSet(`csv:${id}`, csvText);
@@ -179,6 +179,7 @@ export async function createRun({ name, csvText }) {
     message: 'Jonossa',
     results: [],
     activity: [],
+    batchMeta,
     pipeline: {
       active: false,
       stage: 'idle',
