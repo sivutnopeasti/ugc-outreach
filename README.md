@@ -1,4 +1,4 @@
-# UGC Suomi Outreach
+﻿# UGC Suomi Outreach
 
 Mailchimp-tyylinen nettisovellus: lataa yritysten CSV, arvioi Instagram ja lähetä kutsu heikoille tileille.
 
@@ -27,17 +27,16 @@ npm run dev
 
 Avaa http://localhost:3100
 
-## Deploy Verceliin (maalaussovellus-repo)
+## Deploy Verceliin
 
-Sovellus elää kansiossa `outreach/` haarassa `cursor/ugc-email-outreach-900b`.
+Tämä repo on valmis sellaisenaan (Root Directory = `.`, ei alikansiota).
 
-1. [vercel.com](https://vercel.com) → **Add New Project** → valitse `sivutnopeasti/maalaussovellus`
-2. **Root Directory** → `outreach` (Important: muuten Vercel yrittää rakentaa maalaussovelluksen)
-3. Production Branch (tai Preview): `cursor/ugc-email-outreach-900b` — tai mergeaa `master`iin ja deployaa sieltä
-4. Lisää **Upstash Redis** (Vercel Marketplace, ilmainen) → Environment Variables:
+1. [vercel.com](https://vercel.com) → **Add New Project** → `sivutnopeasti/ugc-outreach`
+2. Framework: Next.js (automaattinen)
+3. Lisää **Upstash Redis** (Vercel Marketplace, ilmainen) → Environment Variables:
    - `UPSTASH_REDIS_REST_URL`
    - `UPSTASH_REDIS_REST_TOKEN`
-5. Deploy
+4. Deploy
 
 Ilman Redistä Vercelissä data ei säily funktioiden välillä. Paikallisesti käytetään `data/`-kansiota.
 
